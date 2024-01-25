@@ -1,33 +1,73 @@
-use std::env;
-use std::process::Command;
+mod config;
+mod error;
+
+use crate::config::Config;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use std::{
+    env,
+    io::{self, Write},
+    process::{Command, Stdio},
+};
 
 fn main() {
-    // 获取命令行参数
     let args: Vec<String> = env::args().collect();
 
-    // 检查参数数量是否正确
     if args.len() != 2 {
-        println!("Usage: {} <mpv-url>", args[0]);
+        eprintln!("Usage: {} <mpv://play/...>", args[0]);
+        io::stderr().flush().unwrap();
         return;
     }
 
-    // 解析mpv-url
     let mpv_url = &args[1];
-    let raw_url = match mpv_url.strip_prefix("mpv://") {
-        Some(url) => url,
-        None => {
-            println!("Invalid mpv-url: {}", mpv_url);
+
+    let (video_url, subfile_url) = match extract_urls(mpv_url) {
+        Ok(urls) => urls,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            io::stderr().flush().unwrap();
             return;
         }
     };
 
-    // 构建mpv命令
-    let mut mpv_command = Command::new("d:\\Scoop\\apps\\mpv\\current\\mpv.exe");
-    mpv_command.arg(raw_url);
+    let mpv_command = Config::load().unwrap().mpv;
+    let mut mpv = Command::new(mpv_command);
 
-    // 执行mpv命令
-    match mpv_command.spawn() {
-        Ok(_) => println!("Playing video: {}", raw_url),
-        Err(e) => println!("Error executing mpv: {}", e),
+    if !subfile_url.is_empty() {
+        let subfile_arg = format!("--sub-file={}", subfile_url);
+        mpv.arg(video_url).arg(subfile_arg);
+    } else {
+        mpv.arg(video_url);
+    }
+
+    mpv.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+
+    match mpv.spawn() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            io::stderr().flush().unwrap();
+            return;
+        }
+    }
+}
+
+fn extract_urls(mpv_url: &str) -> Result<(String, String), String> {
+    let url = mpv_url
+        .trim_end_matches('=')
+        .strip_prefix("mpv://play/")
+        .unwrap();
+
+    if url.contains("/?subfile=") {
+        let parts: Vec<&str> = url.splitn(2, "/?subfile=").collect();
+        let video_url = URL_SAFE_NO_PAD.decode(&parts[0]).unwrap();
+        let subfile_url = URL_SAFE_NO_PAD.decode(&parts[1]).unwrap();
+
+        Ok((
+            String::from_utf8(video_url).unwrap(),
+            String::from_utf8(subfile_url).unwrap(),
+        ))
+    } else {
+        let video_url = URL_SAFE_NO_PAD.decode(url).unwrap();
+        Ok((String::from_utf8(video_url).unwrap(), String::new()))
     }
 }
