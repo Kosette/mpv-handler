@@ -9,7 +9,6 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-base64 = "0.21"
 serde = {version = "1.0",features = ["derive"]}
 thiserror = "1.0"
 toml = "0.8"
