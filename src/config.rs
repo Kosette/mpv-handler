@@ -10,9 +10,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// Load config file and retruns `Config`
-    ///
-    /// If config file doesn't exists, returns default value
+    // Load config file and retruns `Config`
+    //
+    // If config file doesn't exists, returns default value
     pub fn load() -> Result<Config, Error> {
         let path = config_path()?;
 
@@ -36,12 +36,12 @@ fn config_path() -> Result<PathBuf, Error> {
     Ok(config_path)
 }
 
-/// The defalut value of `Config`
+// The defalut value of `Config`
 fn default_config() -> Config {
     Config { mpv: default_mpv() }
 }
 
-/// The default value of `Config.mpv`
+// The default value of `Config.mpv`
 fn default_mpv() -> String {
     return "mpv.exe".to_string();
 }

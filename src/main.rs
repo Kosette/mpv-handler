@@ -34,9 +34,13 @@ fn main() {
 
     if !subfile_url.is_empty() {
         let subfile_arg = format!("--sub-file={}", subfile_url);
-        mpv.arg(video_url).arg(subfile_arg);
+        let force_window = format!("--force-window=immediate");
+
+        mpv.arg(video_url).arg(subfile_arg).arg(force_window);
     } else {
-        mpv.arg(video_url);
+        let force_window = format!("--force-window=immediate");
+
+        mpv.arg(video_url).arg(force_window);
     }
 
     mpv.stdout(Stdio::inherit()).stderr(Stdio::inherit());
