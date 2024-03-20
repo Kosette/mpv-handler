@@ -1,19 +1,16 @@
 mod config;
 mod error;
 
-use crate::config::Config;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use config::{MPVClient, ReqClient};
 use regex::Regex;
-use reqwest::{
-    blocking::Client,
-    header::{HeaderMap, HeaderValue},
-};
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::json;
 use std::time::Duration;
 use std::{
     env,
     io::{self, BufRead, BufReader, Write},
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
 };
 
 fn main() {
@@ -40,8 +37,7 @@ fn main() {
     // 匹配视频链接中的参数
     let (host, item_id, api_key, media_source_id) = extract_params(&video_url);
 
-    let mpv_command = Config::load().unwrap().mpv;
-    let mut mpv = Command::new(mpv_command);
+    let mut mpv = MPVClient::new();
     // 指定终端输出播放进度，格式为HH:mm:ss.sss
     let playback_arg = "--term-status-msg=${playback-time/full}";
     // 强制立即打开播放器窗口
@@ -55,8 +51,6 @@ fn main() {
             .arg(playback_arg)
             .arg(force_window);
     } else {
-        let force_window = format!("--force-window=immediate");
-
         mpv.arg(video_url).arg(playback_arg).arg(force_window);
     }
 
@@ -198,8 +192,6 @@ fn extract_params(video_url: &str) -> (String, String, String, String) {
 // }
 
 fn update_progress(ticks: u128, host: &str, item_id: &str, api_key: &str, media_id: &str) {
-    let client = Client::new();
-
     let mut headers = HeaderMap::new();
 
     headers.insert("X-Emby-Token", HeaderValue::from_str(api_key).unwrap());
@@ -214,11 +206,12 @@ fn update_progress(ticks: u128, host: &str, item_id: &str, api_key: &str, media_
 
     let stopped_body = json!({"ItemId":item_id,"MediaSourceId":media_id,"PositionTicks":ticks});
 
-    let res = client
+    let res = ReqClient::new()
         .post(&format!("{}/emby/Sessions/Playing/Stopped", host))
         .headers(headers)
         .json(&stopped_body)
         .send();
+
     match res {
         Ok(res) => {
             if res.status() == 200 {
