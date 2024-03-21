@@ -32,7 +32,7 @@ impl ReqClient {
         let client = if proxy.is_empty() {
             Client::builder().build().unwrap()
         } else {
-            println!("正在使用代理： {}", proxy);
+            println!("正在使用代理访问: {}", proxy);
             let req_proxy = reqwest::Proxy::all(proxy).expect("设置代理失败");
             Client::builder().proxy(req_proxy).build().unwrap()
         };

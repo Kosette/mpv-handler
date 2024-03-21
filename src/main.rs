@@ -69,6 +69,8 @@ fn main() {
         }
     };
 
+    // 标记播放状态
+    playing_status(&host, &item_id, &api_key, &media_source_id, true);
     // 读取 stdout 输出
     let stdout = child.stdout.as_mut().unwrap();
     let reader = BufReader::new(stdout);
@@ -101,8 +103,10 @@ fn main() {
     // 使用时间戳更新播放进度
     if let Some(duration) = last_timestamp {
         let ticks = duration.as_nanos() / 100;
-        // playing(&host, &item_id, &api_key, &media_source_id);
+        // 更新播放进度
         update_progress(ticks, &host, &item_id, &api_key, &media_source_id);
+        // 标记为停止播放
+        playing_status(&host, &item_id, &api_key, &media_source_id, false);
     } else {
         println!("获取播放时间失败");
     }
@@ -155,40 +159,45 @@ fn extract_params(video_url: &str) -> (String, String, String, String) {
     }
 }
 
-// fn playing(host: &str, item_id: &str, api_key: &str, media_id: &str) {
-//     let client = Client::new();
+fn playing_status(host: &str, item_id: &str, api_key: &str, media_id: &str, switch: bool) {
+    let client = ReqClient::new();
 
-//     let mut headers = HeaderMap::new();
+    let mut headers = HeaderMap::new();
 
-//     headers.insert("X-Emby-Token", HeaderValue::from_str(api_key).unwrap());
-//     headers.insert(
-//         "X-Emby-Device-Id",
-//         HeaderValue::from_static("8b1e6f78-4965-423a-8a11-73e50882bcb3"),
-//     );
-//     headers.insert(
-//         "X-Emby-Device-Name",
-//         HeaderValue::from_static("Google Chrome"),
-//     );
+    headers.insert("X-Emby-Token", HeaderValue::from_str(api_key).unwrap());
+    headers.insert(
+        "X-Emby-Device-Id",
+        HeaderValue::from_static("8b1e6f78-4965-423a-8a11-73e50882bcb3"),
+    );
+    headers.insert(
+        "X-Emby-Device-Name",
+        HeaderValue::from_static("Google Chrome"),
+    );
 
-//     let playing_body = json!({"ItemId":item_id,"MediaSourceId":media_id});
+    let playing_body = json!({"ItemId":item_id,"MediaSourceId":media_id});
 
-//     let res = client
-//         .post(&format!("{}/emby/Sessions/Playing", host))
-//         .headers(headers)
-//         .json(&playing_body)
-//         .send();
+    let url = match switch {
+        true => format!("{}/emby/Sessions/Playing", host),
+        false => format!("{}/emby/Sessions/Playing/Stopped", host),
+    };
 
-//     match res {
-//         Ok(res) => {
-//             if res.status() == 200 {
-//                 println!("标记播放成功");
-//             } else {
-//                 println!("标记播放失败,{}", res.status());
-//             }
-//         }
-//         Err(e) => println!("请求错误,{:?}", e),
-//     }
-// }
+    let res = client
+        .post(&url)
+        .headers(headers)
+        .json(&playing_body)
+        .send();
+
+    match res {
+        Ok(res) => {
+            if switch == true {
+                println!("标记播放开始，服务状态: {}", res.status());
+            } else {
+                println!("标记播放结束，服务状态: {}", res.status());
+            }
+        }
+        Err(_) => println!("标记播放失败"),
+    }
+}
 
 fn update_progress(ticks: u128, host: &str, item_id: &str, api_key: &str, media_id: &str) {
     let mut headers = HeaderMap::new();
@@ -213,11 +222,7 @@ fn update_progress(ticks: u128, host: &str, item_id: &str, api_key: &str, media_
 
     match res {
         Ok(res) => {
-            if res.status() == 200 {
-                println!("回传进度成功")
-            } else {
-                println!("回传进度失败")
-            }
+            println!("正在回传进度，请求状态: {}", res.status());
         }
         Err(_) => println!("回传进度失败"),
     }
