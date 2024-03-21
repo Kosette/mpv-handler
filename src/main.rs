@@ -8,13 +8,12 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::json;
 use std::time::Duration;
 use std::{
-    env,
     io::{self, BufRead, BufReader, Write},
     process::{Child, Stdio},
 };
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = std::env::args().collect();
 
     if args.len() != 2 {
         eprintln!("Usage: {} <mpv://play/...>", args[0]);

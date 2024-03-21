@@ -1,7 +1,6 @@
 use crate::error::Error;
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -24,7 +23,12 @@ pub struct ReqClient;
 
 impl ReqClient {
     pub fn new() -> Client {
-        let proxy = Config::load().expect("获取自定义设置失败").proxy;
+        let raw_proxy = Config::load().expect("获取自定义设置失败").proxy;
+        let proxy = match raw_proxy {
+            Some(proxy) => proxy,
+            None => "".to_string(),
+        };
+
         let client = if proxy.is_empty() {
             Client::builder().build().unwrap()
         } else {
@@ -40,7 +44,7 @@ impl ReqClient {
 struct Config {
     #[serde(default = "default_mpv")]
     pub mpv: String,
-    pub proxy: String,
+    pub proxy: Option<String>,
 }
 
 impl Config {
@@ -64,7 +68,7 @@ impl Config {
 // Get config file path
 fn config_path() -> Result<PathBuf, Error> {
     #[cfg(windows)]
-    let config_path = env::current_exe()
+    let config_path = std::env::current_exe()
         .unwrap()
         .parent()
         .unwrap()
@@ -81,7 +85,7 @@ fn config_path() -> Result<PathBuf, Error> {
 fn default_config() -> Config {
     Config {
         mpv: default_mpv(),
-        proxy: "".to_string(),
+        proxy: None,
     }
 }
 

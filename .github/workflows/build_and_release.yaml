@@ -1,0 +1,61 @@
+name: Build Releases
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - v*
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  build-release:
+    permissions:
+      contents: write
+    env:
+      RUST_BACKTRACE: full
+    strategy:
+      matrix:
+        include:
+          - arch-name: x86_64-linux-gnu
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: mpv-handler
+            ext:
+
+          - arch-name: x86_64-windows-msvc
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: mpv-handler.exe
+            ext: .exe
+
+          - arch-name: x86_64-macos
+            os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: mpv-handler
+            ext:
+
+    runs-on: ${{matrix.os}}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ${{matrix.target}}
+        timeout-minutes: 120
+        run: |
+          mkdir artifacts/ &&
+          cargo build --release --locked &&
+          mv target/release/${{matrix.artifact}} artifacts/mpv-handler-${{matrix.arch-name}}${{matrix.ext}}
+
+      - name: Get latest tag name
+        run: echo "TAG_NAME=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
+
+      - name: Upload Github Assets
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: artifacts/*
+          tag_name: ${{ env.TAG_NAME }}
