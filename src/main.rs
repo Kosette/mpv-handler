@@ -103,10 +103,10 @@ fn main() {
     // 使用时间戳更新播放进度
     if let Some(duration) = last_timestamp {
         let ticks = duration.as_nanos() / 100;
+        // 标记为停止播放
+        //playing_status(&host, &item_id, &api_key, &media_source_id, false);
         // 更新播放进度
         update_progress(ticks, &host, &item_id, &api_key, &media_source_id);
-        // 标记为停止播放
-        playing_status(&host, &item_id, &api_key, &media_source_id, false);
     } else {
         println!("获取播放时间失败");
     }
