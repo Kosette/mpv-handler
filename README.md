@@ -3,6 +3,8 @@
 #### 使用方法
 
 > 支持形如`mpv://play/<url_base64>`的参数。
+> 
+> 你可能需要配合油猴脚本[EmbytoLocalPlayer](https://github.com/bpking1/embyExternalUrl)一起享用
 
 `mpv-handler`需配合`mpv`播放器使用，如果`mpv`程序没有加入系统`PATH`，也可以使用`config.toml`文件自定义路径，`config.toml`格式如下：
 ```toml
@@ -40,3 +42,7 @@ Windows Registry Editor Version 5.00
 #### 致谢
 
 由[mpv-handler@akiirui](https://github.com/akiirui/mpv-handler)启发。
+
+### License
+
+MIT
