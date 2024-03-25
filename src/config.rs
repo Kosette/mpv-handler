@@ -13,6 +13,7 @@ pub struct MPVClient;
 impl MPVClient {
     pub fn new() -> Command {
         let mpv_command = Config::load().expect("获取自定义配置失败").mpv;
+
         match mpv_command.is_empty() {
             true => Command::new(default_mpv()),
             false => {
@@ -35,7 +36,12 @@ impl Extractor {
         if url.contains("/?subfile=") {
             let parts: Vec<&str> = url.splitn(2, "/?subfile=").collect();
             let video_url = URL_SAFE_NO_PAD.decode(&parts[0]).unwrap();
-            let subfile_url = URL_SAFE_NO_PAD.decode(&parts[1]).unwrap();
+            let subfile_url = if parts[1].contains("&") {
+                let sub_parts: Vec<&str> = parts[1].splitn(2, "&").collect();
+                URL_SAFE_NO_PAD.decode(&sub_parts[0]).unwrap()
+            } else {
+                URL_SAFE_NO_PAD.decode(&parts[1]).unwrap()
+            };
 
             Ok((
                 String::from_utf8(video_url).unwrap(),
@@ -73,6 +79,7 @@ impl Extractor {
         }
     }
 }
+
 pub struct ReqClient;
 
 impl ReqClient {
@@ -161,19 +168,48 @@ impl ReqClient {
             Err(_) => println!("标记播放失败"),
         }
     }
+
+    pub fn get_chapter_info(host: &str, item_id: &str, api_key: &str) -> String {
+        let client = Client::new();
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Emby-Token", HeaderValue::from_str(api_key).unwrap());
+
+        let url = format!("{}/emby/Items?Ids={}", host, item_id);
+
+        let json: serde_json::Value = client
+            .get(&url)
+            .headers(headers)
+            .send()
+            .unwrap()
+            .json()
+            .expect("请求章节信息错误");
+
+        let chapter_info = if json["Items"][0]["Type"] == "Episode" {
+            let series_name = &json["Items"][0]["SeriesName"];
+            let season = &json["Items"][0]["ParentIndexNumber"];
+            let episode = &json["Items"][0]["IndexNumber"];
+            let title = &json["Items"][0]["Name"];
+            format!("{} - S{}E{} - {}", series_name, season, episode, title)
+        } else if json["Items"][0]["Type"] == "Movie" {
+            let title = &json["Items"][0]["Name"];
+            format!("{}", title)
+        } else {
+            "".to_string()
+        };
+        return chapter_info;
+    }
 }
 
 #[derive(Debug, Deserialize)]
-struct Config {
+pub struct Config {
     #[serde(default = "default_mpv")]
     pub mpv: String,
     pub proxy: Option<String>,
 }
 
 impl Config {
-    // Load config file and retruns `Config`
-    //
-    // If config file doesn't exists, returns default value
+    // 读取config.toml配置信息
     pub fn load() -> Result<Config, Error> {
         let path = config_path()?;
 

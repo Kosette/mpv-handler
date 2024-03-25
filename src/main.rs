@@ -1,7 +1,7 @@
 mod config;
 mod error;
 
-use config::{Extractor, MPVClient, ReqClient};
+use config::{Config, Extractor, MPVClient, ReqClient};
 use std::time::Duration;
 use std::{
     io::{self, BufRead, BufReader, Write},
@@ -32,21 +32,38 @@ fn main() {
     // 匹配视频链接中的参数
     let (host, item_id, api_key, media_source_id) = Extractor::extract_params(&video_url);
 
-    let mut mpv = MPVClient::new();
     // 指定终端输出播放进度，格式为HH:mm:ss.sss
     let playback_arg = "--term-status-msg=${playback-time/full}";
     // 强制立即打开播放器窗口
-    let force_window = format!("--force-window=immediate");
+    let force_window = "--force-window=immediate";
+    // 显示媒体标题信息
+    let chapter_info = ReqClient::get_chapter_info(&host, &item_id, &api_key);
+    println!("Chapter: {}", chapter_info);
+    let title_arg = format!("--force-media-title={}", chapter_info);
+
+    let mut mpv = MPVClient::new();
+
+    let raw_proxy = Config::load().expect("获取自定义配置失败").proxy;
+    let proxy = match raw_proxy {
+        Some(proxy) => proxy,
+        None => "".to_string(),
+    };
+    let proxy_arg = format!("--http-proxy={}", proxy);
 
     if !subfile_url.is_empty() {
-        let subfile_arg = format!("--sub-file={}", subfile_url);
-
+        let sub_arg = format!("--sub-file={}", subfile_url);
         mpv.arg(video_url)
-            .arg(subfile_arg)
+            .arg(sub_arg)
             .arg(playback_arg)
-            .arg(force_window);
+            .arg(force_window)
+            .arg(title_arg)
+            .arg(proxy_arg);
     } else {
-        mpv.arg(video_url).arg(playback_arg).arg(force_window);
+        mpv.arg(video_url)
+            .arg(playback_arg)
+            .arg(force_window)
+            .arg(title_arg)
+            .arg(proxy_arg);
     }
 
     // 捕获 stdout 输出
