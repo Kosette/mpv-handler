@@ -61,6 +61,7 @@ jobs:
           mv target/release/${{matrix.artifact}} artifacts/
           mv target/release/cfg_tool.exe artifacts/
           mv scripts/* artifacts/
+          mv *.md artifacts/
           compress-archive -path artifacts/* -destination artifacts/mpv-handler-${{matrix.arch-name}}.zip
 
       - name: Get latest tag name
@@ -72,6 +73,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: |
-            artifacts/*.tar.gz
+            ./*.tar.gz
             artifacts/*.zip
           tag_name: ${{ env.TAG_NAME }}
