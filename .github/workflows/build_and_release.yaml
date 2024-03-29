@@ -44,15 +44,24 @@ jobs:
 
       - name: Build ${{matrix.target}}
         timeout-minutes: 120
+        if: ${{matrix.target != 'x86_64-pc-windows-msvc'}}
         run: |
           mkdir artifacts/
           cargo build --release --locked
           mv target/release/${{matrix.artifact}} artifacts/mpv-handler-${{matrix.arch-name}}${{matrix.ext}}
+          mv *.md scripts/* artifacts/
+          tar -czf mpv-handler-${{matrix.arch-name}}.tar.gz artifacts/*
 
       - name: Copy accessories
         if: ${{matrix.target == 'x86_64-pc-windows-msvc'}}
         run: |
-          compress-archive -path scripts/ -destination artifacts/scripts.zip
+          cargo build --release --locked
+          cargo build -p cfg_tool --release --locked
+          mkdir artifacts/
+          mv target/release/${{matrix.artifact}} artifacts/
+          mv target/release/cfg_tool.exe artifacts/
+          mv scripts/* artifacts/
+          compress-archive -path artifacts/* -destination artifacts/mpv-handler-${{matrix.arch-name}}.zip
 
       - name: Get latest tag name
         run: echo "TAG_NAME=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
@@ -62,5 +71,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: artifacts/*
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
           tag_name: ${{ env.TAG_NAME }}

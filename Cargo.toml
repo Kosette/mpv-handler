@@ -1,6 +1,6 @@
 [package]
 name = "mpv-handler"
-version = "0.2.4"
+version = "0.3.1"
 edition = "2021"
 authors = ["kosette"]
 description = "play videos from website using mpv"
@@ -24,3 +24,9 @@ codegen-units = 1
 opt-level = "s"
 debug = false
 strip = true
+
+[workspace]
+members = [
+    ".",
+    "cfg_tool"
+]
