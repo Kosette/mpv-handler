@@ -12,11 +12,12 @@ call :ensure_admin
 
 :choose_operation
 if [%unattended%] == [no] (
-    set /p operation="按下'r'安装注册表，或者按下'r'卸载注册表 (i/r)? "
-    if [%operation%] == [] goto :choose_operation
+    set /p operation="按下'r'安装注册表，或者按下'r'卸载注册表 (i/r)? 请输入："
 ) else (
     set operation=i
 )
+
+if [%operation%] == [] goto :choose_operation
 
 if "%operation%"=="i" (
     :: Get mpv-handler.exe location
@@ -71,7 +72,7 @@ if "%operation%"=="i" (
     goto :EOF
 
 :add_verbs
-    call :reg add "HKCR\mpv" /d "URL:mpv handler link" /f
+    call :reg add "HKCR\mpv" /d "URL:mpv" /f
     call :reg add "HKCR\mpv" /v "URL Protocol" /f
     call :reg add "HKCR\mpv\shell\open\command" /d "\"%mpv_handler_path%\" \"%%%%1\"" /f
     goto :EOF

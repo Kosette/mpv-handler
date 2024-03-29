@@ -13,10 +13,11 @@ call :ensure_admin
 :choose_operation
 if [%unattended%] == [no] (
     set /p operation="Enter 'i' to install or 'r' to uninstall (i/r)? Your input: "
-    if [%operation%] == [""] goto :choose_operation
 ) else (
     set operation=i
 )
+
+if [%operation%] == [] goto :choose_operation
 
 if "%operation%"=="i" (
     :: Get mpv-handler.exe location
