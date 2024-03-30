@@ -1,7 +1,10 @@
+use serde::Serialize;
 use std::env;
+use std::fs;
 use std::io::{stdin, stdout, Read, Write};
 use std::os::windows::process::ExitStatusExt;
 use std::process::{Command, ExitStatus, Output};
+use toml;
 
 enum Operation {
     Install,
@@ -38,14 +41,48 @@ fn main() {
                 return;
             }
             add_reg();
-            println!("Install successfully!  安装成功！");
+            println!("Install reg successfully!  安装注册表成功！");
+            add_path();
             wait_for_key_press();
         }
         Operation::Uninstall => {
             del_reg();
-            println!("Uninstall successfully!  卸载成功！");
+            println!("Uninstall reg successfully!  卸载注册表成功！");
             wait_for_key_press();
         }
+    }
+}
+
+#[derive(Debug, Serialize, Default)]
+struct Config {
+    mpv: String,
+    proxy: String,
+}
+
+fn add_path() {
+    println!("Configuring mpv path....\n正在配置mpv路径……");
+    let mpv_path = env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("mpv.exe");
+
+    let config_path = env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config.toml");
+
+    let config = Config {
+        mpv: mpv_path.display().to_string(),
+        ..Default::default()
+    };
+    let toml = toml::to_string(&config).unwrap();
+    let status = fs::write(config_path, toml);
+
+    match status {
+        Ok(_) => println!("Configure successfully.\n配置文件成功。"),
+        Err(e) => println!("Configure failed.\n配置失败。\nError occur: {}", e),
     }
 }
 
@@ -81,6 +118,7 @@ fn is_vista_or_later() -> bool {
 
     output.status.success()
 }
+
 fn is_admin() -> bool {
     let output = Command::new("cmd")
         .args(&["/C", "openfiles"])
