@@ -29,9 +29,7 @@ impl Config {
 
 // Get config file path
 fn config_path() -> Result<PathBuf, Error> {
-    let exe_path = env::current_exe()?;
-    let exe_dir = exe_path.parent().unwrap();
-    let config_path = exe_dir.join("config.toml");
+    let config_path = env::current_exe()?.parent().unwrap().join("config.toml");
 
     Ok(config_path)
 }
@@ -43,5 +41,5 @@ fn default_config() -> Config {
 
 /// The default value of `Config.mpv`
 fn default_mpv() -> String {
-    return "mpv.exe".to_string();
+    "mpv.exe".to_string()
 }

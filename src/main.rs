@@ -1,4 +1,4 @@
-#![windows_subsystem="windows"]
+#![windows_subsystem = "windows"]
 
 mod config;
 mod error;
@@ -41,7 +41,6 @@ fn main() {
         Err(e) => {
             eprintln!("Error: {}", e);
             io::stderr().flush().unwrap();
-            return;
         }
     }
 }
@@ -49,11 +48,11 @@ fn main() {
 fn extract_urls(mpv_url: &str) -> Result<String, String> {
     let url = mpv_url.strip_prefix("vlc://").expect("url is not correct.");
 
-    if url.starts_with("http//") {
-        let valid_url = String::from("http://") + &url[6..];
+    if let Some(stripped) = url.strip_prefix("http//") {
+        let valid_url = String::from("http://") + stripped;
         Ok(valid_url)
-    } else if url.starts_with("https//") {
-        let valid_url = String::from("https://") + &url[7..];
+    } else if let Some(stripped) = url.strip_prefix("https//") {
+        let valid_url = String::from("https://") + stripped;
         Ok(valid_url)
     } else {
         let valid_url = url.to_string();
