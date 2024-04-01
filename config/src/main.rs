@@ -61,11 +61,30 @@ struct Config {
 
 fn add_path() {
     println!("Configuring mpv path....\n正在配置mpv路径……");
-    let mpv_path = env::current_exe()
+    let current_path = env::current_exe()
         .unwrap()
         .parent()
         .unwrap()
         .join("mpv.exe");
+    let parent_dir = match env::current_exe().unwrap().parent().unwrap().parent() {
+        Some(path) => path.to_path_buf(),
+        None => env::current_exe().unwrap().parent().unwrap().to_path_buf(),
+    };
+
+    let mpv_path = if current_path.exists() {
+        println!("find mpv: \n找到mpv程序: \n{}", current_path.display());
+        current_path.display().to_string()
+    } else if parent_dir.join("mpv.exe").exists() {
+        println!(
+            "find mpv: \n找到mpv程序: \n{}",
+            parent_dir.join("mpv.exe").display()
+        );
+        parent_dir.join("mpv.exe").display().to_string()
+    } else {
+        println!("mpv.exe is not found in current or parent directory.\n在当前文件夹和上层文件夹中没有发现mpv.exe.");
+        println!("fill in config.toml on your own.\n请自行在config.toml中填写");
+        "".to_string()
+    };
 
     let config_path = env::current_exe()
         .unwrap()
@@ -74,15 +93,15 @@ fn add_path() {
         .join("config.toml");
 
     let config = Config {
-        mpv: mpv_path.display().to_string(),
+        mpv: mpv_path,
         ..Default::default()
     };
     let toml = toml::to_string(&config).unwrap();
     let status = fs::write(config_path, toml);
 
     match status {
-        Ok(_) => println!("Configure successfully.\n配置文件成功。"),
-        Err(e) => println!("Configure failed.\n配置失败。\nError occur: {}", e),
+        Ok(_) => println!("Configure complete.\n配置文件写入完成。"),
+        Err(e) => println!("Configure failed.\n配置文件写入失败。\nError occur: {}", e),
     }
 }
 
@@ -101,7 +120,7 @@ fn choose_operation() -> Operation {
 }
 
 fn wait_for_key_press() {
-    println!("Press Enter↩️ to continue...\n按回车键↩️继续...");
+    println!("Press Enter to continue...\n按回车键继续...");
     let mut buffer = [0u8; 1];
     stdin().read_exact(&mut buffer).unwrap();
 }

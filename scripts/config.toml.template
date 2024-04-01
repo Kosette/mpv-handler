@@ -1,5 +1,5 @@
-# mpv.exe path
-# mpv.exe 程序路径
+# mpv.exe path, do not use back-slash
+# mpv.exe 程序路径，不要使用反斜杠
 mpv = "c:/programs/mpv.exe"
 
 # http proxy, leave empty if you don't want to use

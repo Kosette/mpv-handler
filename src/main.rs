@@ -2,8 +2,10 @@
 
 mod config;
 mod error;
+mod network;
 
-use config::{Config, Extractor, MPVClient, ReqClient};
+use config::{Config, MPVClient};
+use network::{extractor, request};
 use std::time::Duration;
 use std::{
     io::{self, BufRead, BufReader, Write},
@@ -22,7 +24,7 @@ fn main() {
     let mpv_url = &args[1];
 
     // 匹配视频连接和外置字幕链接
-    let (video_url, subfile_url) = match Extractor::extract_urls(mpv_url) {
+    let (video_url, subfile_url) = match extractor::extract_urls(mpv_url) {
         Ok(urls) => urls,
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -32,16 +34,21 @@ fn main() {
     };
 
     // 匹配视频链接中的参数
-    let (host, item_id, api_key, media_source_id) = Extractor::extract_params(&video_url);
+    let (host, item_id, api_key, media_source_id) = extractor::extract_params(&video_url);
 
+    // 指定输出等级为status
+    let msg_level = "--msg-level=all=status";
     // 指定终端输出播放进度，格式为HH:mm:ss.sss
     let playback_arg = "--term-status-msg=${playback-time/full}";
     // 强制立即打开播放器窗口
     let force_window = "--force-window=immediate";
     // 显示媒体标题信息
-    let chapter_info = ReqClient::get_chapter_info(&host, &item_id, &api_key);
-    println!("Chapter: {}", chapter_info);
+    let chapter_info = request::get_chapter_info(&host, &item_id, &api_key);
+    //println!("Chapter: {}", chapter_info);
     let title_arg = format!("--force-media-title={}", chapter_info);
+    // 获取视频播放进度
+    let start_pos = request::get_start_position(&host, &api_key, &item_id);
+    let start_arg = format!("--start={}%", start_pos);
 
     let mut mpv = MPVClient::new();
 
@@ -56,15 +63,19 @@ fn main() {
         let sub_arg = format!("--sub-file={}", subfile_url);
         mpv.arg(video_url)
             .arg(sub_arg)
-            .arg(playback_arg)
+            .arg(msg_level)
             .arg(force_window)
+            .arg(playback_arg)
             .arg(title_arg)
+            .arg(start_arg)
             .arg(proxy_arg);
     } else {
         mpv.arg(video_url)
-            .arg(playback_arg)
+            .arg(msg_level)
             .arg(force_window)
+            .arg(playback_arg)
             .arg(title_arg)
+            .arg(start_arg)
             .arg(proxy_arg);
     }
 
@@ -85,7 +96,7 @@ fn main() {
     };
 
     // 标记播放状态
-    ReqClient::playing_status(&host, &item_id, &api_key, &media_source_id, true);
+    request::start_playing(&host, &item_id, &api_key, &media_source_id);
     // 读取 stdout 输出
     let stdout = child.stdout.as_mut().unwrap();
     let reader = BufReader::new(stdout);
@@ -118,10 +129,8 @@ fn main() {
     // 使用时间戳更新播放进度
     if let Some(duration) = last_timestamp {
         let ticks = duration.as_nanos() / 100;
-        // 标记为停止播放
-        // ReqClient::playing_status(&host, &item_id, &api_key, &media_source_id, false);
         // 更新播放进度
-        ReqClient::update_progress(ticks, &host, &item_id, &api_key, &media_source_id);
+        request::update_progress(ticks, &host, &item_id, &api_key, &media_source_id);
     } else {
         println!("获取播放时间失败");
     }

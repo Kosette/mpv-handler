@@ -1,4 +1,5 @@
 # mpv-handler
+> 仓库地址： [mpv-handler](https://github.com/Kosette/mpv-handler/)
 
 ## English Ver. [README](README_EN.md)
 
@@ -18,7 +19,7 @@ mpv = "/usr/local/bin/mpv"
 # 可选项，设置使用代理回传进度，支持http\socks代理，不使用可以留空
 proxy = ""
 ```
-> [!IMPORTANT]  
+> [!重要]  
 > 现在有了可以导入注册表的工具`cfg_tool.exe`，不再需要手动编写。
 
 ### `cfg_tool`使用方法如下
@@ -27,7 +28,7 @@ proxy = ""
 
 如果是点击运行，按照提示操作即可。如果是终端运行，支持两个选项：`/r`卸载注册表，`/i`安装注册表。
 
-> [!CAUTION]  
+> [!注意]  
 > 下面的方案已经过时。
 
 ~~此外，为了成功调用`mpv-handler`，需要将其写入注册表，新建文本文件，在其中写入以下内容后保存：~~

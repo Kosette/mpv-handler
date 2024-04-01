@@ -1,9 +1,9 @@
-name: Build Releases
+name: CI testing
 on:
   workflow_dispatch:
   push:
-    tags:
-      - v*
+    branches:
+      - 'master'
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,8 +40,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build ${{matrix.target}}
+        if: ${{ (!startsWith(github.ref, 'refs/tags/')) && (matrix.target != 'x86_64-pc-windows-msvc') }}
         timeout-minutes: 120
-        if: ${{ matrix.target != 'x86_64-pc-windows-msvc' }}
         run: |
           mkdir artifacts/
           cargo build --release --locked
@@ -49,8 +49,8 @@ jobs:
           mv *.md scripts/config.toml.template LICENSE artifacts/
           tar -czf mpv-handler-${{matrix.arch}}.tar.gz artifacts/*
 
-      - name: Build $${{matrix.target}}
-        if: ${{ matrix.target == 'x86_64-pc-windows-msvc' }}
+      - name: Build ${{matrix.target}}
+        if: ${{ (!startsWith(github.ref, 'refs/tags/')) && (matrix.target == 'x86_64-pc-windows-msvc') }}
         run: |
           cargo build --release --locked
           cargo build -p config --release --locked
@@ -62,12 +62,13 @@ jobs:
           mv LICENSE artifacts/
           compress-archive -path artifacts/* -destination artifacts/mpv-handler-${{matrix.arch}}.zip
 
-      - name: Upload Github Assets
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            ./*.tar.gz
+          name: mpv-handler-${{matrix.arch}}
+          path: |
             artifacts/*.zip
-          tag_name: ${{ env.TAG_NAME }}
+            ./*.tar.gz
+          compression-level: 5
+          retention-days: 3
+

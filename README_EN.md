@@ -1,4 +1,5 @@
 # mpv-handler
+> Source repo: [mpv-handler](https://github.com/Kosette/mpv-handler/)
 
 #### Usage
 
@@ -29,7 +30,7 @@ If you run it by clicking, just follow the prompts. If you run it in a terminal,
 > [!CAUTION]  
 > The following solutions are outdated.
 
-In addition, in order to successfully call `mpv-handler`, it needs to be written to the registry. Create a new text file, save it after writing the following content:
+~~In addition, in order to successfully call `mpv-handler`, it needs to be written to the registry. Create a new text file, save it after writing the following content:~~
 ```
 Windows Registry Editor Version 5.00
 [HKEY_CLASSES_ROOT\mpv]
@@ -40,9 +41,9 @@ Windows Registry Editor Version 5.00
 [HKEY_CLASSES_ROOT\mpv\shell\open\command]
 @="\"D:\\Programs\\mpv-handler.exe\" \"%1\""
 ```
-**In which, the path on the last line should be rewritten to the path where `mpv-handler.exe` is actually stored. Note the format: `\` and `"` should be preceded by `\`.**
+~~**In which, the path on the last line should be rewritten to the path where `mpv-handler.exe` is actually stored. Note the format: `\` and `"` should be preceded by `\`.**~~
 
-Change the file extension to `.reg`, double-click to install the registry, so that you can use the above `mpv://play/<url_base64>` link format in the browser to call mpv.
+~~Change the file extension to `.reg`, double-click to install the registry, so that you can use the above `mpv://play/<url_base64>` link format in the browser to call mpv.~~
 
 #### Description
 
