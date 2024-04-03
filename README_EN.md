@@ -19,13 +19,15 @@ proxy = ""
 ```
 
 > [!IMPORTANT]  
-> Now we have a `cfg_tool.exe` to manage registry!
+> Now we have a `config.exe` to manage registry!
 
-### `cfg_tool` Usage
+### `config` Usage
 
-Since inserting or deleting registry requires administrator privileges, you must run it as administrator. Either right-click and "Run as administrator" or type `sudo .\cfg_tool.exe [/r|/i]` in command line, provided that you have sudo utility installed.
+Since inserting or deleting registry requires administrator privileges, **you must run it as administrator**. Either **right-click and "Run as administrator"** or type `sudo .\config.exe [/r|/i]` in command line, provided that you have sudo utility installed.
 
 If you run it by clicking, just follow the prompts. If you run it in a terminal, it supports two options: `/r` to uninstall the registry, and `/i` to install the registry.
+
+Moreover, `config.exe` also auto-generate `config.toml` and insert `mpv` path, if you put `mpv.exe` in same or parent directory.
 
 > [!CAUTION]  
 > The following solutions are outdated.
