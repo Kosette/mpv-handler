@@ -6,7 +6,7 @@ use std::process::Command;
 pub struct MPVClient;
 
 impl MPVClient {
-    pub fn new() -> Command {
+    pub fn build() -> Command {
         let mpv_command = Config::load().expect("获取自定义配置失败").mpv;
 
         match mpv_command.is_empty() {

@@ -4,15 +4,22 @@ mod config;
 mod error;
 mod network;
 
+use crate::network::{extractor, request};
 use config::{Config, MPVClient};
-use network::{extractor, request};
+use std::env;
 use std::time::Duration;
 use std::{
     io::{self, BufRead, BufReader, Write},
     process::{Child, Stdio},
 };
 
+fn deviceid_gen() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 fn main() {
+    env::set_var("DEVICE_ID", deviceid_gen());
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() != 2 {
@@ -42,6 +49,8 @@ fn main() {
     let playback_arg = "--term-status-msg=${playback-time/full}";
     // 强制立即打开播放器窗口
     let force_window = "--force-window=immediate";
+    // set volume to 75%
+    let vol_arg = "--volume=85";
     // 显示媒体标题信息
     let chapter_info = request::get_chapter_info(&host, &item_id, &api_key);
     //println!("Chapter: {}", chapter_info);
@@ -50,7 +59,7 @@ fn main() {
     let start_pos = request::get_start_position(&host, &api_key, &item_id);
     let start_arg = format!("--start={}%", start_pos);
 
-    let mut mpv = MPVClient::new();
+    let mut mpv = MPVClient::build();
 
     let raw_proxy = Config::load().expect("获取自定义配置失败").proxy;
     let proxy = match raw_proxy {
@@ -63,6 +72,7 @@ fn main() {
         let sub_arg = format!("--sub-file={}", subfile_url);
         mpv.arg(video_url)
             .arg(sub_arg)
+            .arg(vol_arg)
             .arg(msg_level)
             .arg(force_window)
             .arg(playback_arg)
@@ -71,6 +81,7 @@ fn main() {
             .arg(proxy_arg);
     } else {
         mpv.arg(video_url)
+            .arg(vol_arg)
             .arg(msg_level)
             .arg(force_window)
             .arg(playback_arg)
@@ -105,30 +116,28 @@ fn main() {
     let mut last_timestamp: Option<Duration> = None;
 
     // 处理 stdout 输出
-    for line in reader.lines() {
-        if let Ok(l) = line {
-            // 时间戳格式为 "HH:mm:ss.sss"
-            let parts: Vec<&str> = l.split(':').collect();
-            if parts.len() == 3 {
-                let hours = parts[0].parse::<u64>().unwrap_or(0);
-                let minutes = parts[1].parse::<u64>().unwrap_or(0);
-                let seconds_and_millis: Vec<&str> = parts[2].split('.').collect();
-                if seconds_and_millis.len() == 2 {
-                    let seconds = seconds_and_millis[0].parse::<u64>().unwrap_or(0);
-                    let millis = seconds_and_millis[1].parse::<u64>().unwrap_or(0);
-                    let duration = Duration::new(
-                        hours * 3600 + minutes * 60 + seconds,
-                        (millis * 1_000) as u32,
-                    );
-                    last_timestamp = Some(duration);
-                }
+    for line in reader.lines().map_while(Result::ok) {
+        // 时间戳格式为 "HH:mm:ss.sss"
+        let parts: Vec<&str> = line.split(':').collect();
+        if parts.len() == 3 {
+            let hours = parts[0].parse::<u64>().unwrap_or(0);
+            let minutes = parts[1].parse::<u64>().unwrap_or(0);
+            let seconds_and_millis: Vec<&str> = parts[2].split('.').collect();
+            if seconds_and_millis.len() == 2 {
+                let seconds = seconds_and_millis[0].parse::<u64>().unwrap_or(0);
+                let millis = seconds_and_millis[1].parse::<u64>().unwrap_or(0);
+                let duration = Duration::new(
+                    hours * 3600 + minutes * 60 + seconds,
+                    (millis * 1_000) as u32,
+                );
+                last_timestamp = Some(duration);
             }
         }
     }
 
     // 使用时间戳更新播放进度
     if let Some(duration) = last_timestamp {
-        let ticks = duration.as_nanos() / 100;
+        let ticks = duration.as_secs() * 10000000;
         // 更新播放进度
         request::update_progress(ticks, &host, &item_id, &api_key, &media_source_id);
     } else {

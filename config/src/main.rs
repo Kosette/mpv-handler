@@ -4,7 +4,6 @@ use std::fs;
 use std::io::{stdin, stdout, Read, Write};
 use std::os::windows::process::ExitStatusExt;
 use std::process::{Command, ExitStatus, Output};
-use toml;
 
 enum Operation {
     Install,
@@ -127,7 +126,7 @@ fn wait_for_key_press() {
 
 fn is_vista_or_later() -> bool {
     let output = Command::new("cmd")
-        .args(&["/C", "ver"])
+        .args(["/C", "ver"])
         .output()
         .unwrap_or_else(|_| Output {
             status: ExitStatus::from_raw(0),
@@ -140,7 +139,7 @@ fn is_vista_or_later() -> bool {
 
 fn is_admin() -> bool {
     let output = Command::new("cmd")
-        .args(&["/C", "openfiles"])
+        .args(["/C", "openfiles"])
         .output()
         .unwrap_or_else(|_| Output {
             status: ExitStatus::from_raw(0),
