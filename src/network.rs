@@ -80,7 +80,11 @@ pub mod request {
         } else {
             println!("正在使用代理访问: {}", proxy);
             let req_proxy = reqwest::Proxy::all(proxy).expect("设置代理失败");
-            Client::builder().proxy(req_proxy).build().unwrap()
+            Client::builder()
+                .proxy(req_proxy)
+                .user_agent("Tsukimi")
+                .build()
+                .unwrap()
         }
     }
 
@@ -212,10 +216,76 @@ pub mod request {
             .expect("请求播放位置信息错误");
 
         let percentage = json["Items"][0]["UserData"]["PlayedPercentage"].as_f64();
-        if let Some(t) = percentage {
-            t
-        } else {
-            0.
+        percentage.unwrap_or(0.)
+    }
+}
+
+pub mod property {
+    use serde_json::json;
+    use std::io::{Read, Write};
+    use std::os::windows::io::FromRawHandle;
+    use windows::{core::*, Win32::Foundation::*, Win32::Storage::FileSystem::*};
+
+    pub fn get_time_pos() -> windows::core::Result<String> {
+        let pipe_name = r"\\.\pipe\mpvsocket";
+
+        let wide_pipe_name: Vec<u16> = pipe_name.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR::from_raw(wide_pipe_name.as_ptr()),
+                (FILE_GENERIC_READ | FILE_GENERIC_WRITE).0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL, // 改为普通文件属性
+                HANDLE::default(),
+            )
+        };
+
+        if handle.is_err() {
+            println!("Failed to open pipe: {:?}", handle.as_ref().err());
+            return Err(handle.err().unwrap());
         }
+
+        let handle = handle.unwrap();
+        let mut file = unsafe { std::fs::File::from_raw_handle(handle.0 as *mut _) };
+
+        let message = json!({
+            "command": ["get_property", "time-pos"]
+        });
+
+        // 添加换行符
+        let message_str = message.to_string() + "\n";
+        // println!("Sending message: {}", message_str);
+        file.write_all(message_str.as_bytes()).map_err(|e| {
+            println!("Failed to write: {:?}", e);
+            Error::from_win32()
+        })?;
+
+        let mut response = String::new();
+        let mut buffer = [0; 1024];
+        loop {
+            match file.read(&mut buffer) {
+                Ok(0) => break, // 读取结束
+                Ok(n) => {
+                    response.push_str(&String::from_utf8_lossy(&buffer[..n]));
+                    if response.ends_with('\n') {
+                        break; // 读取到换行符，认为响应结束
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to read: {:?}", e);
+                    return Err(Error::from_win32());
+                }
+            }
+        }
+
+        let time_pos: serde_json::Value =
+            serde_json::from_str(response.trim()).expect("No valid time-pos found.");
+        // println!("Received response: {}", time_pos["data"]);
+        let time_data = time_pos["data"].to_string();
+
+        Ok(time_data)
     }
 }
