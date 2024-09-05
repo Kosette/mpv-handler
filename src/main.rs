@@ -44,7 +44,11 @@ fn main() {
     let (host, item_id, api_key, media_source_id) = extractor::extract_params(&video_url);
 
     // 开启ipc-server
+    #[cfg(windows)]
     let ipc_server = "--input-ipc-server=\\\\.\\pipe\\mpvsocket";
+    #[cfg(unix)]
+    let ipc_server = "--input-ipc-server=/tmp/mpvsocket";
+
     // 强制立即打开播放器窗口
     let force_window = "--force-window=immediate";
     // set volume to 75%
@@ -116,7 +120,10 @@ fn main() {
     let mut last_print = Instant::now();
 
     while is_process_running(&mut child) {
-        let time_pos = property::get_time_pos();
+        #[cfg(windows)]
+        let time_pos = property::get_time_pos_win();
+        #[cfg(unix)]
+        let time_pos = property::get_time_pos_unix();
 
         if last_print.elapsed() >= Duration::from_secs(10) {
             if let Ok(duration) = time_pos {

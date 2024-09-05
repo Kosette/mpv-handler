@@ -221,12 +221,21 @@ pub mod request {
 }
 
 pub mod property {
-    use serde_json::json;
     use std::io::{Read, Write};
+
+    #[cfg(unix)]
+    use crate::error::Error;
+    #[cfg(windows)]
+    use serde_json::json;
+    #[cfg(unix)]
+    use std::os::unix::net::UnixStream;
+    #[cfg(windows)]
     use std::os::windows::io::FromRawHandle;
+    #[cfg(windows)]
     use windows::{core::*, Win32::Foundation::*, Win32::Storage::FileSystem::*};
 
-    pub fn get_time_pos() -> windows::core::Result<String> {
+    #[cfg(windows)]
+    pub fn get_time_pos_win() -> windows::core::Result<String> {
         let pipe_name = r"\\.\pipe\mpvsocket";
 
         let wide_pipe_name: Vec<u16> = pipe_name.encode_utf16().chain(std::iter::once(0)).collect();
@@ -281,6 +290,31 @@ pub mod property {
             }
         }
 
+        let time_pos: serde_json::Value =
+            serde_json::from_str(response.trim()).expect("No valid time-pos found.");
+        // println!("Received response: {}", time_pos["data"]);
+        let time_data = time_pos["data"].to_string();
+
+        Ok(time_data)
+    }
+
+    #[cfg(unix)]
+    pub fn get_time_pos_unix() -> Result<String, Error> {
+        // 连接到 MPV 的 IPC socket
+        let mut stream = UnixStream::connect("/tmp/mpvsocket").unwrap();
+
+        // 构造要发送的命令
+        let command = r#"{ "command": ["get_property", "time-pos"] }"#;
+
+        // 发送命令
+        stream.write_all(command.as_bytes()).unwrap();
+        stream.write_all(b"\n").unwrap(); // 确保以换行符结束
+
+        // 读取响应
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+
+        // println!("Received response: {}", response);
         let time_pos: serde_json::Value =
             serde_json::from_str(response.trim()).expect("No valid time-pos found.");
         // println!("Received response: {}", time_pos["data"]);
