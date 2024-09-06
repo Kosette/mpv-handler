@@ -49,6 +49,9 @@ fn main() {
     #[cfg(unix)]
     let ipc_server = "--input-ipc-server=/tmp/mpvsocket";
 
+    // 指定日志输出等级
+    let msg_level = "--msg-level=all=error";
+
     // 强制立即打开播放器窗口
     let force_window = "--force-window=immediate";
     // set volume to 75%
@@ -80,6 +83,7 @@ fn main() {
             .arg(ua_arg)
             .arg(vol_arg)
             .arg(ipc_server)
+            .arg(msg_level)
             .arg(force_window)
             .arg(title_arg)
             .arg(start_arg)
@@ -89,6 +93,7 @@ fn main() {
             .arg(ua_arg)
             .arg(vol_arg)
             .arg(ipc_server)
+            .arg(msg_level)
             .arg(force_window)
             .arg(title_arg)
             .arg(start_arg)
@@ -107,6 +112,8 @@ fn main() {
 
     // 检测进程退出状态
     fn is_process_running(child: &mut Child) -> bool {
+        std::thread::sleep(Duration::from_secs(2));
+
         match child.try_wait() {
             Ok(None) => true,
             Ok(Some(_)) => false,
@@ -120,12 +127,12 @@ fn main() {
     let mut last_print = Instant::now();
 
     while is_process_running(&mut child) {
-        #[cfg(windows)]
-        let time_pos = property::get_time_pos_win();
-        #[cfg(unix)]
-        let time_pos = property::get_time_pos_unix();
-
         if last_print.elapsed() >= Duration::from_secs(10) {
+            #[cfg(windows)]
+            let time_pos = property::get_time_pos_win();
+            #[cfg(unix)]
+            let time_pos = property::get_time_pos_unix();
+
             if let Ok(duration) = time_pos {
                 let ticks: u64 = duration.parse::<f64>().unwrap() as u64 * 10_000_000_u64;
                 // 更新进度
