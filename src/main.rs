@@ -5,7 +5,7 @@ mod error;
 mod network;
 
 use crate::network::{extractor, property, request};
-use config::{Config, MPVClient};
+use config::{Config, MPVClient, DEFAULT_UA};
 use std::env;
 use std::time::{Duration, Instant};
 use std::{
@@ -66,7 +66,16 @@ fn main() {
     let start_arg = format!("--start={}%", start_pos);
 
     // 设置mpv请求的UA
-    let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+    let ua = match Config::load().expect("获取配置失败").useragent {
+        Some(ua) => {
+            if ua.is_empty() {
+                DEFAULT_UA.to_string()
+            } else {
+                ua
+            }
+        }
+        None => DEFAULT_UA.to_string(),
+    };
     let ua_arg = format!("--user-agent={}", ua);
 
     // 设置proxy

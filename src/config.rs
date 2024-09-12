@@ -3,6 +3,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
 
+pub const DEFAULT_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+
 pub struct MPVClient;
 
 impl MPVClient {
@@ -24,6 +26,7 @@ pub struct Config {
     #[serde(default = "default_mpv")]
     pub mpv: String,
     pub proxy: Option<String>,
+    pub useragent: Option<String>,
 }
 
 impl Config {
@@ -63,6 +66,7 @@ fn default_config() -> Config {
     Config {
         mpv: default_mpv(),
         proxy: None,
+        useragent: Some(DEFAULT_UA.to_string()),
     }
 }
 

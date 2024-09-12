@@ -57,11 +57,26 @@ pub mod extractor {
 pub mod request {
 
     use super::request;
-    use crate::config::Config;
+    use crate::config::{Config, DEFAULT_UA};
     use reqwest::blocking::Client;
     use serde_json::json;
     use std::env;
     use std::sync::OnceLock;
+
+    fn get_device_name() -> String {
+        // 尝试在类 Unix 系统上获取主机名
+        #[cfg(unix)]
+        {
+            env::var("HOSTNAME").unwrap_or_else(|_| "Unknown".to_string())
+        }
+
+        // 尝试在 Windows 系统上获取主机名
+        // 如果是 Windows 系统，使用 "COMPUTERNAME" 环境变量
+        #[cfg(windows)]
+        {
+            env::var("COMPUTERNAME").unwrap_or_else(|_| "Unknown".to_string())
+        }
+    }
 
     fn client() -> &'static reqwest::blocking::Client {
         static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
@@ -69,20 +84,31 @@ pub mod request {
     }
 
     pub fn build() -> reqwest::blocking::Client {
-        let raw_proxy = Config::load().expect("获取自定义设置失败").proxy;
-        let proxy = match raw_proxy {
+        let proxy = match Config::load().expect("获取自定义设置失败").proxy {
             Some(proxy) => proxy,
             None => "".to_string(),
         };
 
+        let ua = match Config::load().expect("获取配置失败").useragent {
+            Some(ua) => {
+                if ua.is_empty() {
+                    DEFAULT_UA.to_string()
+                } else {
+                    ua
+                }
+            }
+            None => DEFAULT_UA.to_string(),
+        };
+
         if proxy.is_empty() {
-            Client::new()
+            Client::builder().user_agent(ua).build().unwrap()
         } else {
             println!("正在使用代理访问: {}", proxy);
             let req_proxy = reqwest::Proxy::all(proxy).expect("设置代理失败");
+
             Client::builder()
                 .proxy(req_proxy)
-                .user_agent("Tsukimi")
+                .user_agent(ua)
                 .build()
                 .unwrap()
         }
@@ -95,7 +121,8 @@ pub mod request {
                 "X-Emby-Device-Id",
                 &env::var("DEVICE_ID").unwrap().to_string(),
             ),
-            ("X-Emby-Device-Name", "Google Chrome"),
+            ("X-Emby-Device-Name", &get_device_name()),
+            ("X-Emby-Client", "Google Chrome"),
         ];
         let stopped_position =
             json!({"ItemId":item_id,"MediaSourceId":media_id,"PositionTicks":ticks});
@@ -122,7 +149,8 @@ pub mod request {
                 "X-Emby-Device-Id",
                 &env::var("DEVICE_ID").unwrap().to_string(),
             ),
-            ("X-Emby-Device-Name", "Google Chrome"),
+            ("X-Emby-Device-Name", &get_device_name()),
+            ("X-Emby-Client", "Google Chrome"),
         ];
         let playing_body = json!({"ItemId":item_id,"MediaSourceId":media_id});
 
@@ -145,7 +173,8 @@ pub mod request {
                 "X-Emby-Device-Id",
                 &env::var("DEVICE_ID").unwrap().to_string(),
             ),
-            ("X-Emby-Device-Name", "Google Chrome"),
+            ("X-Emby-Device-Name", &get_device_name()),
+            ("X-Emby-Client", "Google Chrome"),
         ];
         let url = format!("{}/emby/Items?Ids={}", host, item_id);
 
@@ -177,7 +206,8 @@ pub mod request {
                 "X-Emby-Device-Id",
                 &env::var("DEVICE_ID").unwrap().to_string(),
             ),
-            ("X-Emby-Device-Name", "Google Chrome"),
+            ("X-Emby-Device-Name", &get_device_name()),
+            ("X-Emby-Client", "Google Chrome"),
         ];
         let url = format!("{}/emby/Sessions", host);
 
@@ -203,7 +233,8 @@ pub mod request {
                 "X-Emby-Device-Id",
                 &env::var("DEVICE_ID").unwrap().to_string(),
             ),
-            ("X-Emby-Device-Name", "Google Chrome"),
+            ("X-Emby-Device-Name", &get_device_name()),
+            ("X-Emby-Client", "Google Chrome"),
         ];
         let url = format!("{}/emby/Users/{}/Items?Ids={}", host, user_id, item_id);
 
