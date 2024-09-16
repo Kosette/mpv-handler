@@ -1,11 +1,16 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(
+    all(target_os = "windows", not(feature = "console")),
+    windows_subsystem = "windows"
+)]
 
 mod config;
 mod error;
 mod network;
 
 use crate::network::{extractor, property, request};
-use config::{Config, MPVClient, DEFAULT_UA};
+use config::MPVClient;
+use extractor::M4;
+use network::request::{get_proxy, get_ua, playing_status};
 use std::env;
 use std::time::{Duration, Instant};
 use std::{
@@ -41,7 +46,12 @@ fn main() {
     };
 
     // 匹配视频链接中的参数
-    let (host, item_id, api_key, media_source_id) = extractor::extract_params(&video_url);
+    let M4 {
+        host,
+        item_id,
+        media_source_id,
+        api_key,
+    } = extractor::extract_params(&video_url);
 
     // 开启ipc-server
     #[cfg(windows)]
@@ -62,26 +72,26 @@ fn main() {
     let title_arg = format!("--force-media-title={}", chapter_info);
 
     // 获取视频播放进度
-    let start_pos = request::get_start_position(&host, &api_key, &item_id);
-    let start_arg = format!("--start={}%", start_pos);
+    let start_tikcs = request::get_start_position(&host, &api_key, &item_id);
+    let start_arg = format!("--start={}", start_tikcs / 10_000_000_u64);
 
     // 设置mpv请求的UA
-    let ua = match Config::load().expect("获取配置失败").useragent {
-        Some(ua) => {
-            if ua.is_empty() {
-                DEFAULT_UA.to_string()
-            } else {
-                ua
-            }
-        }
-        None => DEFAULT_UA.to_string(),
-    };
-    let ua_arg = format!("--user-agent={}", ua);
+    let ua_arg = format!("--user-agent={}", get_ua());
 
     // 设置proxy
-    let raw_proxy = Config::load().expect("获取自定义配置失败").proxy;
-    let proxy = raw_proxy.unwrap_or("".to_string());
-    let proxy_arg = format!("--http-proxy={}", proxy);
+    let proxy_arg = format!("--http-proxy={}", get_proxy());
+
+    // 获取重定向之后的推流链接
+    // let video_url = get_redirect(
+    //     format!(
+    //         "{}&PlaySessionId={}",
+    //         video_url,
+    //         &get_user_id(&host, &api_key).play_session_id
+    //     ),
+    //     &api_key,
+    //     &host,
+    // )
+    // .expect("获取推流链接失败");
 
     let mut mpv = MPVClient::build();
 
@@ -130,11 +140,20 @@ fn main() {
         }
     }
 
-    // 标记播放状态
-    request::start_playing(&host, &item_id, &api_key, &media_source_id);
+    // 标记播放开始
+    request::playing_status(
+        start_tikcs,
+        &host,
+        &item_id,
+        &api_key,
+        &media_source_id,
+        request::PlayStatus::Play,
+    );
 
+    let mut ticks = start_tikcs;
     let mut last_print = Instant::now();
 
+    // 上传播放进度
     while is_process_running(&mut child) {
         if last_print.elapsed() >= Duration::from_secs(10) {
             #[cfg(windows)]
@@ -143,13 +162,30 @@ fn main() {
             let time_pos = property::get_time_pos_unix();
 
             if let Ok(duration) = time_pos {
-                let ticks: u64 = duration.parse::<f64>().unwrap() as u64 * 10_000_000_u64;
+                ticks = duration.parse::<f64>().expect("播放时间转换失败") as u64 * 10_000_000_u64;
                 // 更新进度
-                request::update_progress(ticks, &host, &item_id, &api_key, &media_source_id);
+                request::playing_status(
+                    ticks,
+                    &host,
+                    &item_id,
+                    &api_key,
+                    &media_source_id,
+                    request::PlayStatus::Progress,
+                );
                 last_print = Instant::now();
             } else {
                 println!("更新播放时间失败")
             }
         }
     }
+
+    // 标记播放结束
+    playing_status(
+        ticks,
+        &host,
+        &item_id,
+        &api_key,
+        &media_source_id,
+        request::PlayStatus::Stop,
+    );
 }

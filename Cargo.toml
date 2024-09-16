@@ -17,6 +17,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 toml = "0.8"
+url = "2.5.2"
 uuid = { version = "1.10", features = ["v4", "fast-rng"] }
 windows = { version = "0.58.0", features = [
   "Win32_Foundation",
@@ -24,6 +25,9 @@ windows = { version = "0.58.0", features = [
   "Win32_System_Pipes",
   "Win32_Storage_FileSystem",
 ] }
+
+[features]
+console = [] # Enable console logging
 
 [profile.release]
 lto = true

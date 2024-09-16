@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
 
-pub const DEFAULT_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+pub const DEFAULT_UA: &str = "Emby/3.2.32-17.32 (Linux;Android 13) ExoPlayerLib/2.13.2";
 
 pub struct MPVClient;
 
@@ -23,10 +23,19 @@ impl MPVClient {
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    #[serde(default = "default_mpv")]
     pub mpv: String,
     pub proxy: Option<String>,
     pub useragent: Option<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            mpv: default_mpv(),
+            proxy: None,
+            useragent: Some(DEFAULT_UA.to_string()),
+        }
+    }
 }
 
 impl Config {
@@ -41,11 +50,11 @@ impl Config {
             return Ok(config);
         }
 
-        Ok(default_config())
+        Ok(Config::default())
     }
 }
 
-// Get config file path
+// 获取 config.toml 路径
 fn config_path() -> Result<PathBuf, Error> {
     #[cfg(windows)]
     let config_path = std::env::current_exe()
@@ -61,16 +70,7 @@ fn config_path() -> Result<PathBuf, Error> {
     Ok(config_path)
 }
 
-// The defalut value of `Config`
-fn default_config() -> Config {
-    Config {
-        mpv: default_mpv(),
-        proxy: None,
-        useragent: Some(DEFAULT_UA.to_string()),
-    }
-}
-
-// The default value of `Config.mpv`
+// 设置 mpv 默认程序
 fn default_mpv() -> String {
     #[cfg(windows)]
     return "mpv.exe".to_string();
