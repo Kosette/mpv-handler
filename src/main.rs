@@ -10,19 +10,33 @@ mod network;
 use crate::network::{extractor, property, request};
 use config::MPVClient;
 use extractor::M4;
-use network::request::{get_proxy, get_ua, playing_status};
+use network::request::{construct_headers, get_proxy, get_ua, get_user_id, playing_status};
 use std::env;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use std::{
     io::{self, Write},
     process::Child,
 };
+use tokio::runtime::{self, Runtime};
 
 fn deviceid_gen() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-fn main() {
+pub fn runtime() -> &'static Runtime {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("Failed to create runtime")
+    })
+}
+
+#[tokio::main]
+async fn main() {
     env::set_var("DEVICE_ID", deviceid_gen());
 
     let args: Vec<String> = std::env::args().collect();
@@ -67,31 +81,35 @@ fn main() {
     // set volume to 75%
     let vol_arg = "--volume=85";
 
-    // 显示媒体标题信息
-    let chapter_info = request::get_chapter_info(&host, &item_id, &api_key);
-    let title_arg = format!("--force-media-title={}", chapter_info);
-
-    // 获取视频播放进度
-    let start_tikcs = request::get_start_position(&host, &api_key, &item_id);
-    let start_arg = format!("--start={}", start_tikcs / 10_000_000_u64);
-
     // 设置mpv请求的UA
     let ua_arg = format!("--user-agent={}", get_ua());
 
     // 设置proxy
     let proxy_arg = format!("--http-proxy={}", get_proxy());
 
+    // 设置请求头
+    let user_id = get_user_id(&host, &api_key).await;
+    let headers = construct_headers(&api_key, &user_id.as_ref().unwrap().user_id).await;
+
     // 获取重定向之后的推流链接
     // let video_url = get_redirect(
     //     format!(
     //         "{}&PlaySessionId={}",
     //         video_url,
-    //         &get_user_id(&host, &api_key).play_session_id
+    //         user_id.unwrap().play_session_id
     //     ),
-    //     &api_key,
-    //     &host,
+    //     headers.clone(),
     // )
-    // .expect("获取推流链接失败");
+    // .await;
+
+    // 显示媒体标题信息
+    let chapter_info = request::get_chapter_info(&host, &item_id, headers.clone()).await;
+
+    // 获取视频播放进度
+    let start_ticks = request::get_start_position(&host, &api_key, &item_id, headers.clone()).await;
+
+    let start_arg = format!("--start={}", start_ticks.as_ref().unwrap() / 10_000_000_u64);
+    let title_arg = format!("--force-media-title={}", chapter_info.unwrap());
 
     let mut mpv = MPVClient::build();
 
@@ -140,17 +158,20 @@ fn main() {
         }
     }
 
+    let mut ticks = start_ticks.unwrap();
+
     // 标记播放开始
-    request::playing_status(
-        start_tikcs,
+    let _ = request::playing_status(
+        ticks,
         &host,
         &item_id,
         &api_key,
         &media_source_id,
         request::PlayStatus::Play,
-    );
+        headers.clone(),
+    )
+    .await;
 
-    let mut ticks = start_tikcs;
     let mut last_print = Instant::now();
 
     // 上传播放进度
@@ -164,14 +185,17 @@ fn main() {
             if let Ok(duration) = time_pos {
                 ticks = duration.parse::<f64>().expect("播放时间转换失败") as u64 * 10_000_000_u64;
                 // 更新进度
-                request::playing_status(
+                let _ = request::playing_status(
                     ticks,
                     &host,
                     &item_id,
                     &api_key,
                     &media_source_id,
                     request::PlayStatus::Progress,
-                );
+                    headers.clone(),
+                )
+                .await;
+
                 last_print = Instant::now();
             } else {
                 println!("更新播放时间失败")
@@ -180,12 +204,14 @@ fn main() {
     }
 
     // 标记播放结束
-    playing_status(
+    let _ = playing_status(
         ticks,
         &host,
         &item_id,
         &api_key,
         &media_source_id,
         request::PlayStatus::Stop,
-    );
+        headers,
+    )
+    .await;
 }

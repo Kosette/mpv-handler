@@ -85,14 +85,15 @@ pub mod request {
 
     use super::request;
     use crate::config::{Config, DEFAULT_UA};
-    use reqwest::blocking::Client;
+    use crate::error::Error;
     use reqwest::header::{HeaderMap, HeaderValue};
-    use serde_json::json;
+    use reqwest::Client;
+    use serde_json::{json, Value};
     use std::env;
     use std::sync::OnceLock;
 
     // 构造请求标头
-    fn construct_headers(api_key: &str, host: &str) -> Box<HeaderMap> {
+    pub async fn construct_headers(api_key: &str, user_id: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
 
         headers.insert("X-Emby-Token", HeaderValue::from_str(api_key).unwrap());
@@ -105,12 +106,9 @@ pub mod request {
             HeaderValue::from_str(&get_device_name()).unwrap(),
         );
         headers.insert("X-Emby-Client", HeaderValue::from_static("Emby"));
-        headers.insert(
-            "X-Emby-User-Id",
-            HeaderValue::from_str(&get_user_id(host, api_key).user_id).unwrap(),
-        );
+        headers.insert("X-Emby-User-Id", HeaderValue::from_str(user_id).unwrap());
 
-        Box::new(headers)
+        headers
     }
 
     fn get_device_name() -> String {
@@ -150,12 +148,12 @@ pub mod request {
         }
     }
 
-    fn client() -> &'static reqwest::blocking::Client {
-        static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    fn client() -> &'static reqwest::Client {
+        static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
         CLIENT.get_or_init(request::build)
     }
 
-    fn build() -> reqwest::blocking::Client {
+    fn build() -> reqwest::Client {
         let proxy = get_proxy();
         let ua = get_ua();
 
@@ -174,10 +172,9 @@ pub mod request {
     }
 
     // 获取重定向推流链接
-    pub fn _get_redirect(
+    pub async fn _get_redirect(
         url: String,
-        api_key: &str,
-        host: &str,
+        headers: HeaderMap,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let proxy = get_proxy();
 
@@ -187,14 +184,14 @@ pub mod request {
             Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .user_agent(ua)
-                .default_headers(*construct_headers(api_key, host))
+                .default_headers(headers)
                 .build()?
         } else {
             Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .proxy(reqwest::Proxy::all(proxy).expect("设置代理失败"))
                 .user_agent(ua)
-                .default_headers(*construct_headers(api_key, host))
+                .default_headers(headers)
                 .build()?
         };
 
@@ -202,7 +199,7 @@ pub mod request {
         let mut timer = 0_u8;
 
         while timer < 3 {
-            let response = client.get(&current_url).send()?;
+            let response = client.get(&current_url).send().await?;
 
             if response.status().is_redirection() {
                 if let Some(location) = response.headers().get("location") {
@@ -237,16 +234,17 @@ pub mod request {
         }
     }
 
-    pub fn playing_status(
+    pub async fn playing_status(
         ticks: u64,
         host: &str,
         item_id: &str,
         api_key: &str,
         media_source_id: &str,
         status: PlayStatus,
-    ) {
+        headers: HeaderMap,
+    ) -> Result<(), Error> {
         let params = [("reqformat", "json")];
-        let body = json!({"VolumeLevel":100,"IsMuted":false,"IsPaused":false,"RepeatMode":"RepeatNone","SubtitleOffset":0,"PlaybackRate":1,"MaxStreamingBitrate":1_000_000_000_u64,"PlaybackStartTimeTicks":0,"SubtitleStreamIndex":1,"AudioStreamIndex":1,"BufferedRanges":[],"PlayMethod":"DirectStream","PlaySessionId":&get_user_id(host, api_key).play_session_id,"MediaSourceId":media_source_id,"CanSeek":true,"ItemId":item_id,"PositionTicks":ticks,"PlaylistIndex":0,"PlaylistLength":23,"NextMediaType":"Video"});
+        let body = json!({"VolumeLevel":100,"IsMuted":false,"IsPaused":false,"RepeatMode":"RepeatNone","SubtitleOffset":0,"PlaybackRate":1,"MaxStreamingBitrate":1_000_000_000_u64,"PlaybackStartTimeTicks":0,"SubtitleStreamIndex":1,"AudioStreamIndex":1,"BufferedRanges":[],"PlayMethod":"DirectStream","PlaySessionId":&get_user_id(host, api_key).await.unwrap().play_session_id,"MediaSourceId":media_source_id,"CanSeek":true,"ItemId":item_id,"PositionTicks":ticks,"PlaylistIndex":0,"PlaylistLength":23,"NextMediaType":"Video"});
 
         let url = match status {
             PlayStatus::Play => format!("{}/emby/Sessions/Playing", host),
@@ -256,10 +254,11 @@ pub mod request {
 
         let res = client()
             .post(url)
-            .headers(*construct_headers(api_key, host))
+            .headers(headers)
             .query(&params)
             .json(&body)
-            .send();
+            .send()
+            .await;
 
         match res {
             Ok(res) => {
@@ -267,29 +266,37 @@ pub mod request {
             }
             Err(_) => println!("{}出错", status),
         }
+        Ok(())
     }
 
-    pub fn get_chapter_info(host: &str, item_id: &str, api_key: &str) -> String {
+    pub async fn get_chapter_info(
+        host: &str,
+        item_id: &str,
+        headers: HeaderMap,
+    ) -> Result<String, Error> {
         let url = format!("{}/emby/Items?Ids={}", host, item_id);
 
-        let json: serde_json::Value = client()
-            .get(url)
-            .headers(*construct_headers(api_key, host))
-            .send()
-            .unwrap()
-            .json()
-            .expect("请求章节信息错误");
+        let response = client().get(url).headers(headers).send().await?;
+
+        if !response.status().is_success() {
+            return Err(Error::BadStatus(response.status()));
+        }
+
+        let json: Value = response.json().await?;
 
         if json["Items"][0]["Type"] == "Episode" {
             let series_name = Box::new(&json["Items"][0]["SeriesName"]);
             let season = Box::new(&json["Items"][0]["ParentIndexNumber"]);
             let episode = Box::new(&json["Items"][0]["IndexNumber"]);
             let title = Box::new(&json["Items"][0]["Name"]);
-            format!("{} - S{}E{} - {}", series_name, season, episode, title)
+            Ok(format!(
+                "{} - S{}E{} - {}",
+                series_name, season, episode, title
+            ))
         } else if json["Items"][0]["Type"] == "Movie" {
-            json["Items"][0]["Name"].to_string()
+            Ok(json["Items"][0]["Name"].to_string())
         } else {
-            "".to_string()
+            Ok("".to_string())
         }
     }
 
@@ -299,7 +306,7 @@ pub mod request {
     }
 
     // 获取 UserId 和 PlaySessionId
-    pub fn get_user_id(host: &str, api_key: &str) -> Id {
+    pub async fn get_user_id(host: &str, api_key: &str) -> Result<Id, Error> {
         let params = [
             ("X-Emby-Token", api_key),
             (
@@ -311,38 +318,43 @@ pub mod request {
         ];
         let url = format!("{}/emby/Sessions", host);
 
-        let json: serde_json::Value = client()
-            .get(url)
-            .query(&params)
-            .send()
-            .unwrap()
-            .json()
-            .expect("请求用户id错误");
+        let response = client().get(url).query(&params).send().await?;
+
+        if !response.status().is_success() {
+            return Err(Error::BadStatus(response.status()));
+        }
+
+        let json: serde_json::Value = response.json().await?;
 
         let user_id = Box::new(&json[0]["UserId"]);
         let play_session_id = Box::new(&json[0]["Id"]);
-        Id {
+        Ok(Id {
             user_id: user_id.to_string().trim_matches('"').to_string(),
             play_session_id: play_session_id.to_string().trim_matches('"').to_string(),
-        }
+        })
     }
 
     // 获取开播进度
-    pub fn get_start_position(host: &str, api_key: &str, item_id: &str) -> u64 {
-        let user_id = get_user_id(host, api_key).user_id;
+    pub async fn get_start_position(
+        host: &str,
+        api_key: &str,
+        item_id: &str,
+        headers: HeaderMap,
+    ) -> Result<u64, Error> {
+        let user_id = get_user_id(host, api_key).await.unwrap().user_id;
 
         let url = format!("{}/emby/Users/{}/Items?Ids={}", host, user_id, item_id);
 
-        let json: serde_json::Value = client()
-            .get(url)
-            .headers(*construct_headers(api_key, host))
-            .send()
-            .unwrap()
-            .json()
-            .expect("请求播放位置信息错误");
+        let response = client().get(url).headers(headers).send().await?;
+
+        if !response.status().is_success() {
+            return Err(Error::BadStatus(response.status()));
+        }
+
+        let json: serde_json::Value = response.json().await?;
 
         let playback_ticks = json["Items"][0]["UserData"]["PlaybackPositionTicks"].as_u64();
-        playback_ticks.unwrap_or(0)
+        Ok(playback_ticks.unwrap_or(0))
     }
 }
 
