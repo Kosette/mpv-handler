@@ -4,20 +4,18 @@
 )]
 
 mod config;
-mod error;
 mod network;
 
 use crate::network::{extractor, property, request};
+use anyhow::{anyhow, Context, Result};
 use config::MPVClient;
 use extractor::M4;
 use network::request::{construct_headers, get_proxy, get_ua, get_user_id, playing_status};
 use std::env;
+use std::process::Child;
+use std::result::Result::Ok;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
-use std::{
-    io::{self, Write},
-    process::Child,
-};
 use tokio::runtime::{self, Runtime};
 
 fn deviceid_gen() -> String {
@@ -36,15 +34,13 @@ pub fn runtime() -> &'static Runtime {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     env::set_var("DEVICE_ID", deviceid_gen());
 
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() != 2 {
-        eprintln!("Usage: {} <mpv://play/...>", args[0]);
-        io::stderr().flush().unwrap();
-        return;
+        return Err(anyhow!("Usage: {} <mpv://play/...>", args[0]));
     }
 
     let mpv_url = &args[1];
@@ -53,9 +49,7 @@ async fn main() {
     let (video_url, subfile_url) = match extractor::extract_urls(mpv_url) {
         Ok(urls) => urls,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            io::stderr().flush().unwrap();
-            return;
+            return Err(anyhow!("Error: {}", e));
         }
     };
 
@@ -65,7 +59,7 @@ async fn main() {
         item_id,
         media_source_id,
         api_key,
-    } = extractor::extract_params(&video_url);
+    } = extractor::extract_params(&video_url)?;
 
     // 开启ipc-server
     #[cfg(windows)]
@@ -82,14 +76,14 @@ async fn main() {
     let vol_arg = "--volume=85";
 
     // 设置mpv请求的UA
-    let ua_arg = format!("--user-agent={}", get_ua());
+    let ua_arg = format!("--user-agent={}", get_ua()?);
 
     // 设置proxy
-    let proxy_arg = format!("--http-proxy={}", get_proxy());
+    let proxy_arg = format!("--http-proxy={}", get_proxy()?);
 
     // 设置请求头
-    let user_id = get_user_id(&host, &api_key).await;
-    let headers = construct_headers(&api_key, &user_id.as_ref().unwrap().user_id).await;
+    let user_id = get_user_id(&host, &api_key).await?;
+    let headers = construct_headers(&api_key, &user_id.user_id).await?;
 
     // 获取重定向之后的推流链接
     // let video_url = get_redirect(
@@ -103,15 +97,16 @@ async fn main() {
     // .await;
 
     // 显示媒体标题信息
-    let chapter_info = request::get_chapter_info(&host, &item_id, headers.clone()).await;
+    let chapter_info = request::get_chapter_info(&host, &item_id, headers.clone()).await?;
 
     // 获取视频播放进度
-    let start_ticks = request::get_start_position(&host, &api_key, &item_id, headers.clone()).await;
+    let start_ticks =
+        request::get_start_position(&host, &api_key, &item_id, headers.clone()).await?;
 
-    let start_arg = format!("--start={}", start_ticks.as_ref().unwrap() / 10_000_000_u64);
-    let title_arg = format!("--force-media-title={}", chapter_info.unwrap());
+    let start_arg = format!("--start={}", start_ticks / 10_000_000_u64);
+    let title_arg = format!("--force-media-title={}", chapter_info);
 
-    let mut mpv = MPVClient::build();
+    let mut mpv = MPVClient::build()?;
 
     if !subfile_url.is_empty() {
         let sub_arg = format!("--sub-file={}", subfile_url);
@@ -141,9 +136,7 @@ async fn main() {
     let mut child: Child = match mpv.spawn() {
         Ok(child) => child,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            io::stderr().flush().unwrap();
-            return;
+            return Err(anyhow!("Error: {}", e));
         }
     };
 
@@ -158,7 +151,7 @@ async fn main() {
         }
     }
 
-    let mut ticks = start_ticks.unwrap();
+    let mut ticks = start_ticks;
 
     // 标记播放开始
     let _ = request::playing_status(
@@ -183,7 +176,8 @@ async fn main() {
             let time_pos = property::get_time_pos_unix();
 
             if let Ok(duration) = time_pos {
-                ticks = duration.parse::<f64>().expect("播放时间转换失败") as u64 * 10_000_000_u64;
+                ticks = duration.parse::<f64>().context("Failed to parse ticks")? as u64
+                    * 10_000_000_u64;
                 // 更新进度
                 let _ = request::playing_status(
                     ticks,
@@ -214,4 +208,6 @@ async fn main() {
         headers,
     )
     .await;
+
+    Ok(())
 }

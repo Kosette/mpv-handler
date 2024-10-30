@@ -1,4 +1,4 @@
-use crate::error::Error;
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
@@ -8,14 +8,14 @@ pub const DEFAULT_UA: &str = "Emby/3.2.32-17.32 (Linux;Android 13) ExoPlayerLib/
 pub struct MPVClient;
 
 impl MPVClient {
-    pub fn build() -> Command {
-        let mpv_command = Config::load().expect("获取自定义配置失败").mpv;
+    pub fn build() -> Result<Command> {
+        let mpv_command = Config::load().context("获取自定义配置失败")?.mpv;
 
         match mpv_command.is_empty() {
-            true => Command::new(default_mpv()),
+            true => Ok(Command::new(default_mpv())),
             false => {
                 println!("当前使用的MPV路径为: {}", mpv_command);
-                Command::new(mpv_command)
+                Ok(Command::new(mpv_command))
             }
         }
     }
@@ -40,13 +40,12 @@ impl Default for Config {
 
 impl Config {
     // 读取config.toml配置信息
-    pub fn load() -> Result<Config, Error> {
+    pub fn load() -> Result<Config> {
         let path = config_path()?;
 
         if path.exists() {
             let data: String = std::fs::read_to_string(&path)?;
             let config: Config = toml::from_str(&data)?;
-
             return Ok(config);
         }
 
@@ -55,17 +54,17 @@ impl Config {
 }
 
 // 获取 config.toml 路径
-fn config_path() -> Result<PathBuf, Error> {
+fn config_path() -> Result<PathBuf> {
     #[cfg(windows)]
     let config_path = std::env::current_exe()
         .unwrap()
         .parent()
-        .unwrap()
-        .join("config.toml");
+        .ok_or_else(|| anyhow!("Failed to get config path"))?
+        .join("mpv-handler.toml");
     #[cfg(unix)]
     let config_path = dirs::home_dir()
-        .unwrap()
-        .join(".config/mpv-handler/config.toml");
+        .ok_or_else(|| anyhow!("Failed to get home dir"))?
+        .join(".config/mpv-handler/mpv-handler.toml");
 
     Ok(config_path)
 }

@@ -1,31 +1,40 @@
 pub mod extractor {
+    use anyhow::{anyhow, Context, Result};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use regex::Regex;
     use url::Url;
 
-    pub fn extract_urls(mpv_url: &str) -> Result<(String, String), String> {
+    pub fn extract_urls(mpv_url: &str) -> Result<(String, String)> {
         let url = mpv_url
             .trim_end_matches('=')
             .strip_prefix("mpv://play/")
-            .unwrap();
+            .ok_or(anyhow!("Invalid URL scheme"))?;
 
         if url.contains("/?subfile=") {
             let parts: Vec<&str> = url.splitn(2, "/?subfile=").collect();
-            let video_url = URL_SAFE_NO_PAD.decode(parts[0]).unwrap();
+            let video_url = URL_SAFE_NO_PAD
+                .decode(parts[0])
+                .context("Failed to decode video URL")?;
             let subfile_url = if parts[1].contains('&') {
                 let sub_parts: Vec<&str> = parts[1].splitn(2, '&').collect();
-                URL_SAFE_NO_PAD.decode(sub_parts[0]).unwrap()
+                URL_SAFE_NO_PAD
+                    .decode(sub_parts[0])
+                    .context("Failed to decode subtitle URl")?
             } else {
-                URL_SAFE_NO_PAD.decode(parts[1]).unwrap()
+                URL_SAFE_NO_PAD
+                    .decode(parts[1])
+                    .context("Failed to deocde subtitle URL")?
             };
 
             Ok((
-                String::from_utf8(video_url).unwrap(),
-                String::from_utf8(subfile_url).unwrap(),
+                String::from_utf8(video_url)?,
+                String::from_utf8(subfile_url)?,
             ))
         } else {
-            let video_url = URL_SAFE_NO_PAD.decode(url).unwrap();
-            Ok((String::from_utf8(video_url).unwrap(), String::new()))
+            let video_url = URL_SAFE_NO_PAD
+                .decode(url)
+                .context("Failed to decode video URL")?;
+            Ok((String::from_utf8(video_url)?, String::new()))
         }
     }
 
@@ -36,13 +45,13 @@ pub mod extractor {
         pub api_key: String,
     }
 
-    pub fn extract_params(video_url: &str) -> M4 {
-        let url = Url::parse(video_url).unwrap();
+    pub fn extract_params(video_url: &str) -> Result<M4> {
+        let url = Url::parse(video_url).context("Invalid streaming url")?;
 
         let host = format!(
             "{}://{}",
             url.scheme(),
-            url.host_str().expect("没有找到主机名")
+            url.host_str().ok_or(anyhow!("Hostname not found"))?
         );
 
         // 提取 MediaSourceId
@@ -51,7 +60,7 @@ pub mod extractor {
             .find(|(key, _)| key == "MediaSourceId")
             .map(|(_, value)| value)
         else {
-            panic!("没有找到 MediaSourceId");
+            return Err(anyhow!("Failed to extract MediaSourceId"));
         };
 
         // 提取 api_key
@@ -60,24 +69,24 @@ pub mod extractor {
             .find(|(key, _)| key == "api_key")
             .map(|(_, value)| value)
         else {
-            panic!("没有找到 api_key");
+            return Err(anyhow!("Failed to extract api_key"));
         };
 
-        let pattern = Regex::new(r"^.*/videos/(\d+)/.*").unwrap();
+        let pattern = Regex::new(r"^.*/videos/(\d+)/.*")?;
 
         // 匹配并提取 item_id
         let item_id = if let Some(captures) = pattern.captures(url.path()) {
             String::from(&captures[1])
         } else {
-            panic!("没有找到 item_id");
+            return Err(anyhow!("Failed to extract ItemId"));
         };
 
-        M4 {
+        Ok(M4 {
             host,
             item_id,
             media_source_id: media_source_id.to_string(),
             api_key: api_key.to_string(),
-        }
+        })
     }
 }
 
@@ -85,7 +94,7 @@ pub mod request {
 
     use super::request;
     use crate::config::{Config, DEFAULT_UA};
-    use crate::error::Error;
+    use anyhow::{anyhow, Context, Result};
     use reqwest::header::{HeaderMap, HeaderValue};
     use reqwest::Client;
     use serde_json::{json, Value};
@@ -93,22 +102,22 @@ pub mod request {
     use std::sync::OnceLock;
 
     // 构造请求标头
-    pub async fn construct_headers(api_key: &str, user_id: &str) -> HeaderMap {
+    pub async fn construct_headers(api_key: &str, user_id: &str) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
 
-        headers.insert("X-Emby-Token", HeaderValue::from_str(api_key).unwrap());
+        headers.insert("X-Emby-Token", HeaderValue::from_str(api_key)?);
         headers.insert(
             "X-Emby-Device-Id",
-            HeaderValue::from_str(&env::var("DEVICE_ID").unwrap().to_string()).unwrap(),
+            HeaderValue::from_str(&env::var("DEVICE_ID")?.to_string())?,
         );
         headers.insert(
             "X-Emby-Device-Name",
-            HeaderValue::from_str(&get_device_name()).unwrap(),
+            HeaderValue::from_str(&get_device_name())?,
         );
         headers.insert("X-Emby-Client", HeaderValue::from_static("Emby"));
-        headers.insert("X-Emby-User-Id", HeaderValue::from_str(user_id).unwrap());
+        headers.insert("X-Emby-User-Id", HeaderValue::from_str(user_id)?);
 
-        headers
+        Ok(headers)
     }
 
     fn get_device_name() -> String {
@@ -127,58 +136,51 @@ pub mod request {
     }
 
     // 获取UA，默认为ExoPlayer
-    pub fn get_ua() -> String {
-        match Config::load().expect("获取配置失败").useragent {
+    pub fn get_ua() -> Result<String> {
+        match Config::load().context("Failed to load config")?.useragent {
             Some(ua) => {
                 if ua.is_empty() {
-                    DEFAULT_UA.to_string()
+                    Ok(DEFAULT_UA.to_string())
                 } else {
-                    ua
+                    Ok(ua)
                 }
             }
-            None => DEFAULT_UA.to_string(),
+            None => Ok(DEFAULT_UA.to_string()),
         }
     }
 
     // 获取代理链接，默认为空
-    pub fn get_proxy() -> String {
-        match Config::load().expect("获取自定义设置失败").proxy {
-            Some(proxy) => proxy,
-            None => "".to_string(),
+    pub fn get_proxy() -> Result<String> {
+        match Config::load().context("Failed to load config")?.proxy {
+            Some(proxy) => Ok(proxy),
+            None => Ok("".to_string()),
         }
     }
 
     fn client() -> &'static reqwest::Client {
         static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-        CLIENT.get_or_init(request::build)
+        CLIENT.get_or_init(|| request::build().expect("Failed to build Client"))
     }
 
-    fn build() -> reqwest::Client {
-        let proxy = get_proxy();
-        let ua = get_ua();
+    fn build() -> Result<reqwest::Client> {
+        let proxy = get_proxy()?;
+        let ua = get_ua()?;
 
         if proxy.is_empty() {
-            Client::builder().user_agent(ua).build().unwrap()
+            Ok(Client::builder().user_agent(ua).build()?)
         } else {
             println!("正在使用代理访问: {}", proxy);
-            let req_proxy = reqwest::Proxy::all(proxy).expect("设置代理失败");
+            let req_proxy = reqwest::Proxy::all(proxy).context("Failed to set proxy")?;
 
-            Client::builder()
-                .proxy(req_proxy)
-                .user_agent(ua)
-                .build()
-                .unwrap()
+            Ok(Client::builder().proxy(req_proxy).user_agent(ua).build()?)
         }
     }
 
     // 获取重定向推流链接
-    pub async fn _get_redirect(
-        url: String,
-        headers: HeaderMap,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let proxy = get_proxy();
+    pub async fn _get_redirect(url: String, headers: HeaderMap) -> Result<String> {
+        let proxy = get_proxy()?;
 
-        let ua = get_ua();
+        let ua = get_ua()?;
 
         let client = if proxy.is_empty() {
             Client::builder()
@@ -242,9 +244,9 @@ pub mod request {
         media_source_id: &str,
         status: PlayStatus,
         headers: HeaderMap,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let params = [("reqformat", "json")];
-        let body = json!({"VolumeLevel":100,"IsMuted":false,"IsPaused":false,"RepeatMode":"RepeatNone","SubtitleOffset":0,"PlaybackRate":1,"MaxStreamingBitrate":1_000_000_000_u64,"PlaybackStartTimeTicks":0,"SubtitleStreamIndex":1,"AudioStreamIndex":1,"BufferedRanges":[],"PlayMethod":"DirectStream","PlaySessionId":&get_user_id(host, api_key).await.unwrap().play_session_id,"MediaSourceId":media_source_id,"CanSeek":true,"ItemId":item_id,"PositionTicks":ticks,"PlaylistIndex":0,"PlaylistLength":23,"NextMediaType":"Video"});
+        let body = json!({"IsMuted":false,"IsPaused":false,"RepeatMode":"RepeatNone","SubtitleOffset":0,"PlaybackRate":1,"MaxStreamingBitrate":1_000_000_000_u64,"BufferedRanges":[],"PlayMethod":"DirectStream","PlaySessionId":&get_user_id(host, api_key).await?.play_session_id,"MediaSourceId":media_source_id,"CanSeek":true,"ItemId":item_id,"PositionTicks":ticks});
 
         let url = match status {
             PlayStatus::Play => format!("{}/emby/Sessions/Playing", host),
@@ -269,17 +271,13 @@ pub mod request {
         Ok(())
     }
 
-    pub async fn get_chapter_info(
-        host: &str,
-        item_id: &str,
-        headers: HeaderMap,
-    ) -> Result<String, Error> {
+    pub async fn get_chapter_info(host: &str, item_id: &str, headers: HeaderMap) -> Result<String> {
         let url = format!("{}/emby/Items?Ids={}", host, item_id);
 
         let response = client().get(url).headers(headers).send().await?;
 
         if !response.status().is_success() {
-            return Err(Error::BadStatus(response.status()));
+            return Err(anyhow!("Request failed, {}", response.status()));
         }
 
         let json: Value = response.json().await?;
@@ -306,13 +304,10 @@ pub mod request {
     }
 
     // 获取 UserId 和 PlaySessionId
-    pub async fn get_user_id(host: &str, api_key: &str) -> Result<Id, Error> {
+    pub async fn get_user_id(host: &str, api_key: &str) -> Result<Id> {
         let params = [
             ("X-Emby-Token", api_key),
-            (
-                "X-Emby-Device-Id",
-                &env::var("DEVICE_ID").unwrap().to_string(),
-            ),
+            ("X-Emby-Device-Id", &env::var("DEVICE_ID")?.to_string()),
             ("X-Emby-Device-Name", &get_device_name()),
             ("X-Emby-Client", "Emby"),
         ];
@@ -321,7 +316,7 @@ pub mod request {
         let response = client().get(url).query(&params).send().await?;
 
         if !response.status().is_success() {
-            return Err(Error::BadStatus(response.status()));
+            return Err(anyhow!("Request failed, {}", response.status()));
         }
 
         let json: serde_json::Value = response.json().await?;
@@ -340,15 +335,15 @@ pub mod request {
         api_key: &str,
         item_id: &str,
         headers: HeaderMap,
-    ) -> Result<u64, Error> {
-        let user_id = get_user_id(host, api_key).await.unwrap().user_id;
+    ) -> Result<u64> {
+        let user_id = get_user_id(host, api_key).await?.user_id;
 
         let url = format!("{}/emby/Users/{}/Items?Ids={}", host, user_id, item_id);
 
         let response = client().get(url).headers(headers).send().await?;
 
         if !response.status().is_success() {
-            return Err(Error::BadStatus(response.status()));
+            return Err(anyhow!("Request failed, {}", response.status()));
         }
 
         let json: serde_json::Value = response.json().await?;
@@ -361,8 +356,6 @@ pub mod request {
 pub mod property {
     use std::io::{Read, Write};
 
-    #[cfg(unix)]
-    use crate::error::Error;
     #[cfg(windows)]
     use serde_json::json;
     #[cfg(unix)]
@@ -437,24 +430,24 @@ pub mod property {
     }
 
     #[cfg(unix)]
-    pub fn get_time_pos_unix() -> Result<String, Error> {
+    pub fn get_time_pos_unix() -> Result<String> {
         // 连接到 MPV 的 IPC socket
-        let mut stream = UnixStream::connect("/tmp/mpvsocket").unwrap();
+        let mut stream = UnixStream::connect("/tmp/mpvsocket")?;
 
         // 构造要发送的命令
         let command = r#"{ "command": ["get_property", "time-pos"] }"#;
 
         // 发送命令
-        stream.write_all(command.as_bytes()).unwrap();
-        stream.write_all(b"\n").unwrap(); // 确保以换行符结束
+        stream.write_all(command.as_bytes())?;
+        stream.write_all(b"\n")?; // 确保以换行符结束
 
         // 读取响应
         let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
+        stream.read_to_string(&mut response)?;
 
         // println!("Received response: {}", response);
         let time_pos: serde_json::Value =
-            serde_json::from_str(response.trim()).expect("No valid time-pos found.");
+            serde_json::from_str(response.trim()).context("No valid time-pos found.")?;
         // println!("Received response: {}", time_pos["data"]);
         let time_data = time_pos["data"].to_string();
 
