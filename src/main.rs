@@ -1,22 +1,23 @@
 #![windows_subsystem = "windows"]
 
 mod config;
-mod error;
 
 use crate::config::Config;
+use anyhow::{anyhow, Context, Result};
+use std::result::Result::Ok;
 use std::{
     env,
-    io::{self, Write},
     process::{Command, Stdio},
 };
 
-fn main() {
+fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {
-        eprintln!("Usage: {} <vlc://http...>", args[0]);
-        io::stderr().flush().unwrap();
-        return;
+        return Err(anyhow!(
+            "Invalid arguments.\nUsage: {} <vlc://http...>",
+            args[0]
+        ));
     }
 
     let mpv_url = &args[1];
@@ -24,29 +25,26 @@ fn main() {
     let video_url = match extract_urls(mpv_url) {
         Ok(url) => url,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            io::stderr().flush().unwrap();
-            return;
+            return Err(anyhow!("Error: {}", e));
         }
     };
 
-    let mpv_command = Config::load().unwrap().mpv;
+    let mpv_command = Config::load()?.mpv;
     let mut mpv = Command::new(mpv_command);
 
     mpv.arg(video_url);
     mpv.stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
     match mpv.spawn() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            io::stderr().flush().unwrap();
-        }
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow!("Error: {}", e)),
     }
 }
 
-fn extract_urls(mpv_url: &str) -> Result<String, String> {
-    let url = mpv_url.strip_prefix("vlc://").expect("url is not correct.");
+fn extract_urls(mpv_url: &str) -> Result<String> {
+    let url = mpv_url
+        .strip_prefix("vlc://")
+        .context("Invalid URL, should start with vlc://")?;
 
     if let Some(stripped) = url.strip_prefix("http//") {
         let valid_url = String::from("http://") + stripped;

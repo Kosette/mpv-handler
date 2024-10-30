@@ -1,4 +1,4 @@
-use crate::error::Error;
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::env;
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ impl Config {
     /// Load config file and retruns `Config`
     ///
     /// If config file doesn't exists, returns default value
-    pub fn load() -> Result<Config, Error> {
+    pub fn load() -> Result<Config> {
         let path = config_path()?;
 
         if path.exists() {
@@ -28,8 +28,11 @@ impl Config {
 }
 
 // Get config file path
-fn config_path() -> Result<PathBuf, Error> {
-    let config_path = env::current_exe()?.parent().unwrap().join("config.toml");
+fn config_path() -> Result<PathBuf> {
+    let config_path = env::current_exe()?
+        .parent()
+        .ok_or_else(|| anyhow!("No parent dir"))?
+        .join("mpv-handler.toml");
 
     Ok(config_path)
 }
