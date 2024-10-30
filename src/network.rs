@@ -430,6 +430,8 @@ pub mod property {
     }
 
     #[cfg(unix)]
+    use anyhow::{Context, Result};
+    #[cfg(unix)]
     pub fn get_time_pos_unix() -> Result<String> {
         // 连接到 MPV 的 IPC socket
         let mut stream = UnixStream::connect("/tmp/mpvsocket")?;
