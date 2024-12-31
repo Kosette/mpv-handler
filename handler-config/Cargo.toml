@@ -1,10 +1,10 @@
 [package]
-name = "config"
+name = "handler-config"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+eframe = "0.30"
+rfd = "0.15"

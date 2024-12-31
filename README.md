@@ -1,39 +1,43 @@
 # mpv-handler
+
 > 仓库地址： [mpv-handler](https://github.com/Kosette/mpv-handler/)
 
 ## English Ver. [README](README_EN.md)
 
+> [!TIP]
+> 本项目支持 emby 调用 mpv 后回传进度，回传频率为 1 次/10s
+
+> [!WARNING]
+> 没有在 Linux 平台测试回传功能
+
 #### 使用方法
 
 > 支持形如`mpv://play/<url_base64>`的参数。
-> 
+>
 > 你可能需要配合油猴脚本[EmbytoLocalPlayer](https://github.com/bpking1/embyExternalUrl)一起享用
 
-`mpv-handler`需配合`mpv`播放器使用，如果`mpv`程序没有加入系统`PATH`，也可以使用`config.toml`文件自定义路径，把写好的`config.toml`文件放在和`mpv-handler`相同文件夹下面。`config.toml`格式如下：
+> [!IMPORTANT]  
+> 使用 GUI 工具`handler-config.exe`可以较为方便的配置 mpv-handler.toml 和生成所需要的注册表。
+
+`mpv-handler`需配合`mpv`播放器使用，如果`mpv`程序没有加入系统环境变量`PATH`，可以使用`mpv-handler.toml`文件自定义路径，把写好的`mpv-handler.toml`文件放在和`mpv-handler`相同文件夹下面。`mpv-handler.toml`格式如下：
+
 ```toml
 # 必填项
 mpv = "/usr/local/bin/mpv"
 # Windows有两种写法
 # mpv = "c:\\programs\\mpv.exe" 或者 mpv = "c:/programs/mpv.exe"
 
-# 可选项，设置使用代理回传进度，支持http\socks代理，不使用可以留空
+# 可选项，设置使用代理回传进度，支持http代理，不使用可以留空
 proxy = ""
 ```
-> [!IMPORTANT]  
-> 现在有了可以导入注册表的工具`config.exe`，不再需要手动编写。
 
-### `config`使用方法如下
+> [!IMPORTANT]
+> 如果您不知道怎么手动处理注册表，请使用 handler-config.exe
 
-因为写、删注册表需要管理员权限，所以**必须以管理员权限运行**。直接 **右键点击"以管理员身份运行"** 或者在命令行中输入`sudo .\config.exe [/r|/i]`，前提是你安装了sudo工具。
+~~`mpv-handler`需要写入相关注册表项后才能成功调用，可以将以下格式的内容写入空白 txt 文本文件，将其后缀修改为 reg，双击导入注册表。~~
 
-如果是点击运行，按照提示操作即可。如果是终端运行，支持两个选项：`/r`卸载注册表，`/i`安装注册表。
+~~**注意 ⚠️，最后一行的路径修改为本机实际存放 mpv-handler.exe 的路径，注意格式：`\`和`"`前面要加上`\`。**~~
 
-`config.exe`工具会自动搜索当前文件夹或者上层文件夹中是否存在`mpv.exe`文件，如果存在，则自动将路径写入生成的`config.toml`文件中，因此请将`config.exe`和`mpv-handler.exe`放在`mpv.exe`的同目录或者子文件夹下面（不要嵌套多层）。
-
-> [!CAUTION]  
-> 下面的方案已经过时。
-
-~~此外，为了成功调用`mpv-handler`，需要将其写入注册表，新建文本文件，在其中写入以下内容后保存：~~
 ```
 Windows Registry Editor Version 5.00
 [HKEY_CLASSES_ROOT\mpv]
@@ -44,16 +48,13 @@ Windows Registry Editor Version 5.00
 [HKEY_CLASSES_ROOT\mpv\shell\open\command]
 @="\"D:\\Programs\\mpv-handler.exe\" \"%1\""
 ```
-~~**其中，最后一行的路径改写成实际存放mpv-handler.exe的路径，注意格式：`\`和`"`前面要加上`\`。**~~
-
-~~将文件后缀改成`.reg`，双击安装注册表，这样就可以在浏览器中使用上述的`mpv://play/<url_base64>`链接形式调用mpv了。~~
 
 #### 说明
 
-||URL_SAFE_NO_PAD|URL_SAFE|
-|---|---|---|
-|`mpv://play/<url_base64>/?subfile=<url_base64>`|✅|❌|
-|`mpv://play/<url_base64>`|✅|✅|
+|                                                 | URL_SAFE_NO_PAD | URL_SAFE |
+| ----------------------------------------------- | --------------- | -------- |
+| `mpv://play/<url_base64>/?subfile=<url_base64>` | ✅              | ❌       |
+| `mpv://play/<url_base64>`                       | ✅              | ✅       |
 
 #### 致谢
 
