@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use eframe::egui;
 use rfd::FileDialog;
 use std::fs::File;
