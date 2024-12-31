@@ -12,6 +12,7 @@ use config::MPVClient;
 use extractor::M4;
 use network::request::{construct_headers, get_proxy, get_ua, get_user_id, playing_status};
 use std::env;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::Child;
 use std::result::Result::Ok;
@@ -120,8 +121,9 @@ async fn main() -> Result<()> {
             .arg(force_window)
             .arg(title_arg)
             .arg(start_arg)
-            .arg(proxy_arg)
-            .creation_flags(134_217_728u32);
+            .arg(proxy_arg);
+        #[cfg(windows)]
+        mpv.creation_flags(134_217_728u32);
     } else {
         mpv.arg(video_url)
             .arg(ua_arg)
@@ -131,8 +133,9 @@ async fn main() -> Result<()> {
             .arg(force_window)
             .arg(title_arg)
             .arg(start_arg)
-            .arg(proxy_arg)
-            .creation_flags(134_217_728u32);
+            .arg(proxy_arg);
+        #[cfg(windows)]
+        mpv.creation_flags(134_217_728u32);
     }
 
     // 启动子进程
