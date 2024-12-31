@@ -53,10 +53,10 @@ jobs:
         if: ${{ matrix.target == 'x86_64-pc-windows-msvc' }}
         run: |
           cargo build --release --locked
-          cargo build -p config --release --locked
+          cargo build -p handler-config --release --locked
           mkdir artifacts/
           mv target/release/${{matrix.artifact}} artifacts/
-          mv target/release/config.exe artifacts/
+          mv target/release/handler-config.exe artifacts/
           mv scripts/config.toml.template artifacts/
           mv *.md artifacts/
           mv LICENSE artifacts/
