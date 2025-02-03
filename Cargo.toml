@@ -11,19 +11,16 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0"
 base64 = "0.22"
-dirs = "5.0"
+dirs = "6.0"
 regex = "1.10"
-reqwest = { version = "0.12", features = [
-  "json",
-  "native-tls-alpn",
-] }
+reqwest = { version = "0.12", features = ["json", "native-tls-alpn"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.40.0", features = ["full"] }
 toml = "0.8"
 url = "2.5"
 uuid = { version = "1.10", features = ["v4", "fast-rng"] }
-windows = { version = "0.58", features = [
+windows = { version = "0.59", features = [
   "Win32_Foundation",
   "Win32_Security",
   "Win32_System_Pipes",

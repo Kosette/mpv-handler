@@ -379,7 +379,7 @@ pub mod property {
                 None,
                 OPEN_EXISTING,
                 FILE_ATTRIBUTE_NORMAL, // 改为普通文件属性
-                HANDLE::default(),
+                Some(HANDLE::default()),
             )
         };
 
