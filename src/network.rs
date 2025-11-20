@@ -371,6 +371,44 @@ pub mod property {
     const WRITE_TIMEOUT_SECS: u64 = 5; // Timeout for write operations
     const MAX_RETRIES: u32 = 3; // Maximum number of retry attempts
 
+    // Centralized IPC socket paths - must match what's passed to mpv
+    #[cfg(windows)]
+    const IPC_SOCKET_PATH: &str = r"\\.\pipe\mpvsocket";
+    #[cfg(unix)]
+    const IPC_SOCKET_PATH: &str = "/tmp/mpvsocket";
+
+    /// Returns the IPC socket path for the current platform
+    pub fn get_ipc_socket_path() -> &'static str {
+        IPC_SOCKET_PATH
+    }
+
+    /// Wait for IPC socket to become available (useful after starting mpv)
+    /// Returns true if socket is ready, false if timeout reached
+    #[cfg(unix)]
+    pub fn wait_for_socket_ready(timeout_secs: u64) -> bool {
+        use std::path::Path;
+        let socket_path = Path::new(IPC_SOCKET_PATH);
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(timeout_secs);
+
+        while start.elapsed() < timeout {
+            if socket_path.exists() {
+                // Wait a bit more to ensure mpv is ready to accept connections
+                std::thread::sleep(Duration::from_millis(100));
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        false
+    }
+
+    #[cfg(windows)]
+    pub fn wait_for_socket_ready(_timeout_secs: u64) -> bool {
+        // On Windows, named pipes are created on-demand, so we just wait a bit
+        std::thread::sleep(Duration::from_millis(500));
+        true
+    }
+
     #[cfg(windows)]
     pub fn get_time_pos_win() -> windows::core::Result<String> {
         get_time_pos_win_with_retry(MAX_RETRIES)
@@ -400,7 +438,7 @@ pub mod property {
     fn get_time_pos_win_internal() -> windows::core::Result<String> {
         use std::io::ErrorKind;
 
-        let pipe_name = r"\\.\pipe\mpvsocket";
+        let pipe_name = IPC_SOCKET_PATH;
 
         // Check if pipe exists by attempting to peek at it
         let wide_pipe_name: Vec<u16> = pipe_name.encode_utf16().chain(std::iter::once(0)).collect();
@@ -531,7 +569,7 @@ pub mod property {
     fn get_time_pos_unix_internal() -> Result<String> {
         use std::path::Path;
 
-        let socket_path = "/tmp/mpvsocket";
+        let socket_path = IPC_SOCKET_PATH;
 
         // Check if socket file exists before attempting connection
         if !Path::new(socket_path).exists() {
