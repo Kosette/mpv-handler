@@ -425,7 +425,7 @@ pub mod property {
                     last_error = Some(e);
                     if attempt < max_retries - 1 {
                         // Exponential backoff: 100ms, 200ms, 400ms, etc.
-                        // Use checked_shl to prevent overflow, fallback to max delay
+                        // Use checked_pow for defensive programming (prevents overflow if MAX_RETRIES changes)
                         let multiplier = 2u64.checked_pow(attempt).unwrap_or(32);
                         let delay_ms = 100u64.saturating_mul(multiplier);
                         std::thread::sleep(Duration::from_millis(delay_ms));
@@ -552,7 +552,7 @@ pub mod property {
                     last_error = Some(e);
                     if attempt < max_retries - 1 {
                         // Exponential backoff: 100ms, 200ms, 400ms, etc.
-                        // Use checked_pow to prevent overflow, fallback to max delay
+                        // Use checked_pow for defensive programming (prevents overflow if MAX_RETRIES changes)
                         let multiplier = 2u64.checked_pow(attempt).unwrap_or(32);
                         let delay_ms = 100u64.saturating_mul(multiplier);
                         std::thread::sleep(Duration::from_millis(delay_ms));
