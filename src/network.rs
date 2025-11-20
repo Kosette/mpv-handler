@@ -425,7 +425,10 @@ pub mod property {
                     last_error = Some(e);
                     if attempt < max_retries - 1 {
                         // Exponential backoff: 100ms, 200ms, 400ms, etc.
-                        std::thread::sleep(Duration::from_millis(100 * (1 << attempt)));
+                        // Use checked_shl to prevent overflow, fallback to max delay
+                        let multiplier = 2u64.checked_pow(attempt).unwrap_or(32);
+                        let delay_ms = 100u64.saturating_mul(multiplier);
+                        std::thread::sleep(Duration::from_millis(delay_ms));
                     }
                 }
             }
@@ -463,15 +466,8 @@ pub mod property {
             e
         })?;
 
-        // Wrap in a struct that implements Drop for proper cleanup
-        struct FileGuard(std::fs::File);
-        impl Drop for FileGuard {
-            fn drop(&mut self) {
-                // File will be closed automatically when dropped
-            }
-        }
-
-        let mut file_guard = FileGuard(unsafe { std::fs::File::from_raw_handle(handle.0 as *mut _) });
+        // File will be closed automatically when dropped (RAII)
+        let mut file = unsafe { std::fs::File::from_raw_handle(handle.0 as *mut _) };
 
         let message = json!({
             "command": ["get_property", "time-pos"]
@@ -480,12 +476,12 @@ pub mod property {
         let message_str = message.to_string() + "\n";
         
         // Write with timeout handling
-        file_guard.0.write_all(message_str.as_bytes()).map_err(|_| {
+        file.write_all(message_str.as_bytes()).map_err(|_| {
             Error::from_win32()
         })?;
 
         // Flush to ensure data is sent
-        file_guard.0.flush().map_err(|_| Error::from_win32())?;
+        file.flush().map_err(|_| Error::from_win32())?;
 
         // Read response with size limit
         let mut response = String::new();
@@ -493,7 +489,7 @@ pub mod property {
         let mut total_read = 0;
 
         loop {
-            match file_guard.0.read(&mut buffer) {
+            match file.read(&mut buffer) {
                 Ok(0) => {
                     // Connection closed
                     if response.is_empty() {
@@ -556,7 +552,10 @@ pub mod property {
                     last_error = Some(e);
                     if attempt < max_retries - 1 {
                         // Exponential backoff: 100ms, 200ms, 400ms, etc.
-                        std::thread::sleep(Duration::from_millis(100 * (1 << attempt)));
+                        // Use checked_pow to prevent overflow, fallback to max delay
+                        let multiplier = 2u64.checked_pow(attempt).unwrap_or(32);
+                        let delay_ms = 100u64.saturating_mul(multiplier);
+                        std::thread::sleep(Duration::from_millis(delay_ms));
                     }
                 }
             }
