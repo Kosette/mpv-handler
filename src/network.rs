@@ -355,6 +355,7 @@ pub mod request {
 
 pub mod property {
     use std::io::{Read, Write};
+    use std::time::Duration;
 
     #[cfg(windows)]
     use serde_json::json;
@@ -365,10 +366,84 @@ pub mod property {
     #[cfg(windows)]
     use windows::{core::*, Win32::Foundation::*, Win32::Storage::FileSystem::*};
 
+    const MAX_RESPONSE_SIZE: usize = 4096; // Limit response size to prevent memory issues
+    const READ_TIMEOUT_SECS: u64 = 5; // Timeout for read operations
+    const WRITE_TIMEOUT_SECS: u64 = 5; // Timeout for write operations
+    const MAX_RETRIES: u32 = 3; // Maximum number of retry attempts
+
+    // Centralized IPC socket paths - must match what's passed to mpv
+    #[cfg(windows)]
+    const IPC_SOCKET_PATH: &str = r"\\.\pipe\mpvsocket";
+    #[cfg(unix)]
+    const IPC_SOCKET_PATH: &str = "/tmp/mpvsocket";
+
+    /// Returns the IPC socket path for the current platform
+    pub fn get_ipc_socket_path() -> &'static str {
+        IPC_SOCKET_PATH
+    }
+
+    /// Wait for IPC socket to become available (useful after starting mpv)
+    /// Returns true if socket is ready, false if timeout reached
+    #[cfg(unix)]
+    pub fn wait_for_socket_ready(timeout_secs: u64) -> bool {
+        use std::path::Path;
+        let socket_path = Path::new(IPC_SOCKET_PATH);
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(timeout_secs);
+
+        while start.elapsed() < timeout {
+            if socket_path.exists() {
+                // Wait a bit more to ensure mpv is ready to accept connections
+                std::thread::sleep(Duration::from_millis(100));
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        false
+    }
+
+    #[cfg(windows)]
+    pub fn wait_for_socket_ready(_timeout_secs: u64) -> bool {
+        // On Windows, named pipes are created on-demand, so we just wait a bit
+        std::thread::sleep(Duration::from_millis(500));
+        true
+    }
+
     #[cfg(windows)]
     pub fn get_time_pos_win() -> windows::core::Result<String> {
-        let pipe_name = r"\\.\pipe\mpvsocket";
+        get_time_pos_win_with_retry(MAX_RETRIES)
+    }
 
+    #[cfg(windows)]
+    fn get_time_pos_win_with_retry(max_retries: u32) -> windows::core::Result<String> {
+        let mut last_error = None;
+
+        for attempt in 0..max_retries {
+            match get_time_pos_win_internal() {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < max_retries - 1 {
+                        // Exponential backoff: 100ms, 200ms, 400ms, etc.
+                        // Use checked_pow for defensive programming (prevents overflow if MAX_RETRIES changes)
+                        let multiplier = 2u64.checked_pow(attempt).unwrap_or(32);
+                        let delay_ms = 100u64.saturating_mul(multiplier);
+                        std::thread::sleep(Duration::from_millis(delay_ms));
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
+    }
+
+    #[cfg(windows)]
+    fn get_time_pos_win_internal() -> windows::core::Result<String> {
+        use std::io::ErrorKind;
+
+        let pipe_name = IPC_SOCKET_PATH;
+
+        // Check if pipe exists by attempting to peek at it
         let wide_pipe_name: Vec<u16> = pipe_name.encode_utf16().chain(std::iter::once(0)).collect();
 
         let handle = unsafe {
@@ -378,81 +453,213 @@ pub mod property {
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 None,
                 OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL, // 改为普通文件属性
-                Some(HANDLE::default()),
+                FILE_ATTRIBUTE_NORMAL,
+                None,
             )
         };
 
-        if handle.is_err() {
-            println!("Failed to open pipe: {:?}", handle.as_ref().err());
-            return Err(handle.err().unwrap());
-        }
+        let handle = handle.map_err(|e| {
+            // Only print error on first connection attempt to avoid spam
+            if std::io::Error::last_os_error().kind() == ErrorKind::NotFound {
+                // Pipe doesn't exist - mpv might not be ready yet
+            }
+            e
+        })?;
 
-        let handle = handle.unwrap();
+        // File will be closed automatically when dropped (RAII)
         let mut file = unsafe { std::fs::File::from_raw_handle(handle.0 as *mut _) };
 
         let message = json!({
             "command": ["get_property", "time-pos"]
         });
 
-        // 添加换行符
         let message_str = message.to_string() + "\n";
-        // println!("Sending message: {}", message_str);
+        
+        // Write with timeout handling
         file.write_all(message_str.as_bytes()).map_err(|e| {
-            println!("Failed to write: {:?}", e);
-            Error::from_win32()
+            Error::from(e)
         })?;
 
+        // Flush to ensure data is sent
+        file.flush().map_err(|e| Error::from(e))?;
+
+        // Read response with size limit
         let mut response = String::new();
-        let mut buffer = [0; 1024];
+        let mut buffer = [0u8; 1024];
+        let mut total_read = 0;
+
         loop {
             match file.read(&mut buffer) {
-                Ok(0) => break, // 读取结束
+                Ok(0) => {
+                    // Connection closed
+                    if response.is_empty() {
+                        return Err(Error::from(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "Connection closed without data"
+                        )));
+                    }
+                    break;
+                }
                 Ok(n) => {
+                    total_read += n;
+                    if total_read > MAX_RESPONSE_SIZE {
+                        return Err(Error::from(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Response size exceeded limit"
+                        )));
+                    }
+
                     response.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                    if response.ends_with('\n') {
-                        break; // 读取到换行符，认为响应结束
+                    
+                    // Check if we have a complete JSON response
+                    if response.contains('\n') {
+                        break;
                     }
                 }
                 Err(e) => {
-                    println!("Failed to read: {:?}", e);
-                    return Err(Error::from_win32());
+                    return Err(Error::from(e));
                 }
             }
         }
 
-        let time_pos: serde_json::Value =
-            serde_json::from_str(response.trim()).expect("No valid time-pos found.");
-        // println!("Received response: {}", time_pos["data"]);
-        let time_data = time_pos["data"].to_string();
+        // Parse and validate JSON response
+        let time_pos: serde_json::Value = serde_json::from_str(response.trim())
+            .map_err(|e| Error::from(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to parse JSON response: {}", e)
+            )))?;
 
-        Ok(time_data)
+        // Validate response structure and extract data
+        if let Some(data) = time_pos.get("data") {
+            if let Some(error) = time_pos.get("error") {
+                if error != "success" && !error.is_null() {
+                    return Err(Error::from(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("MPV returned error: {}", error)
+                    )));
+                }
+            }
+            Ok(data.to_string())
+        } else {
+            Err(Error::from(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "No 'data' field in MPV response"
+            )))
+        }
     }
 
     #[cfg(unix)]
-    use anyhow::{Context, Result};
+    use anyhow::{anyhow, Context, Result};
+    
     #[cfg(unix)]
     pub fn get_time_pos_unix() -> Result<String> {
-        // 连接到 MPV 的 IPC socket
-        let mut stream = UnixStream::connect("/tmp/mpvsocket")?;
+        get_time_pos_unix_with_retry(MAX_RETRIES)
+    }
 
-        // 构造要发送的命令
+    #[cfg(unix)]
+    fn get_time_pos_unix_with_retry(max_retries: u32) -> Result<String> {
+        let mut last_error = None;
+
+        for attempt in 0..max_retries {
+            match get_time_pos_unix_internal() {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < max_retries - 1 {
+                        // Exponential backoff: 100ms, 200ms, 400ms, etc.
+                        // Use checked_pow for defensive programming (prevents overflow if MAX_RETRIES changes)
+                        let multiplier = 2u64.checked_pow(attempt).unwrap_or(32);
+                        let delay_ms = 100u64.saturating_mul(multiplier);
+                        std::thread::sleep(Duration::from_millis(delay_ms));
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
+    }
+
+    #[cfg(unix)]
+    fn get_time_pos_unix_internal() -> Result<String> {
+        use std::path::Path;
+
+        let socket_path = IPC_SOCKET_PATH;
+
+        // Check if socket file exists before attempting connection
+        if !Path::new(socket_path).exists() {
+            return Err(anyhow!("MPV socket not found at {}", socket_path));
+        }
+
+        // Connect to MPV's IPC socket with timeout
+        let mut stream = UnixStream::connect(socket_path)
+            .context("Failed to connect to MPV socket")?;
+
+        // Set read and write timeouts
+        stream
+            .set_read_timeout(Some(Duration::from_secs(READ_TIMEOUT_SECS)))
+            .context("Failed to set read timeout")?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(WRITE_TIMEOUT_SECS)))
+            .context("Failed to set write timeout")?;
+
+        // Construct and send command
         let command = r#"{ "command": ["get_property", "time-pos"] }"#;
+        stream.write_all(command.as_bytes())
+            .context("Failed to write command to socket")?;
+        stream.write_all(b"\n")
+            .context("Failed to write newline to socket")?;
+        
+        // Flush to ensure data is sent immediately
+        stream.flush().context("Failed to flush socket")?;
 
-        // 发送命令
-        stream.write_all(command.as_bytes())?;
-        stream.write_all(b"\n")?; // 确保以换行符结束
-
-        // 读取响应
+        // Read response with size limit
         let mut response = String::new();
-        stream.read_to_string(&mut response)?;
+        let mut buffer = [0u8; 1024];
+        let mut total_read = 0;
 
-        // println!("Received response: {}", response);
-        let time_pos: serde_json::Value =
-            serde_json::from_str(response.trim()).context("No valid time-pos found.")?;
-        // println!("Received response: {}", time_pos["data"]);
-        let time_data = time_pos["data"].to_string();
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(0) => {
+                    // Connection closed - check if we have a complete response
+                    if response.is_empty() {
+                        return Err(anyhow!("No data received from MPV"));
+                    }
+                    break;
+                }
+                Ok(n) => {
+                    total_read += n;
+                    if total_read > MAX_RESPONSE_SIZE {
+                        return Err(anyhow!("Response size exceeded limit"));
+                    }
 
-        Ok(time_data)
+                    response.push_str(&String::from_utf8_lossy(&buffer[..n]));
+                    
+                    // Check if we have a complete line (JSON response)
+                    if response.contains('\n') {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow!("Failed to read from socket: {}", e));
+                }
+            }
+        }
+
+        // Parse and validate JSON response
+        let time_pos: serde_json::Value = serde_json::from_str(response.trim())
+            .context("Failed to parse JSON response from MPV")?;
+
+        // Validate response structure and extract data
+        if let Some(data) = time_pos.get("data") {
+            // Check for error field
+            if let Some(error) = time_pos.get("error") {
+                if error != "success" && !error.is_null() {
+                    return Err(anyhow!("MPV returned error: {}", error));
+                }
+            }
+            Ok(data.to_string())
+        } else {
+            Err(anyhow!("No 'data' field in MPV response"))
+        }
     }
 }

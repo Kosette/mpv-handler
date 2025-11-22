@@ -26,6 +26,8 @@ windows = { version = "0.59", features = [
   "Win32_System_Pipes",
   "Win32_Storage_FileSystem",
 ] }
+# Note: windows 0.62.x has a known bug with windows-future 0.3.2 incompatibility
+# Upgrade to 0.63+ when available on crates.io
 
 [features]
 console = [] # Enable console logging

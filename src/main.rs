@@ -7,7 +7,7 @@ mod config;
 mod network;
 
 use crate::network::{extractor, property, request};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use config::MPVClient;
 use extractor::M4;
 use network::request::{construct_headers, get_proxy, get_ua, get_user_id, playing_status};
@@ -64,10 +64,10 @@ async fn main() -> Result<()> {
     } = extractor::extract_params(&video_url)?;
 
     // 开启ipc-server
-    #[cfg(windows)]
-    let ipc_server = "--input-ipc-server=\\\\.\\pipe\\mpvsocket";
-    #[cfg(unix)]
-    let ipc_server = "--input-ipc-server=/tmp/mpvsocket";
+    let ipc_server = format!(
+        "--input-ipc-server={}",
+        network::property::get_ipc_socket_path()
+    );
 
     // 指定日志输出等级
     let msg_level = "--msg-level=all=error";
@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
             .arg(sub_arg)
             .arg(ua_arg)
             .arg(vol_arg)
-            .arg(ipc_server)
+            .arg(&ipc_server)
             .arg(msg_level)
             .arg(force_window)
             .arg(title_arg)
@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
         mpv.arg(video_url)
             .arg(ua_arg)
             .arg(vol_arg)
-            .arg(ipc_server)
+            .arg(&ipc_server)
             .arg(msg_level)
             .arg(force_window)
             .arg(title_arg)
@@ -145,6 +145,11 @@ async fn main() -> Result<()> {
             return Err(anyhow!("Error: {}", e));
         }
     };
+
+    // 等待 IPC socket 就绪
+    if !property::wait_for_socket_ready(5) {
+        println!("警告: IPC socket 未能在超时时间内就绪，进度同步可能无法正常工作");
+    }
 
     // 检测进程退出状态
     fn is_process_running(child: &mut Child) -> bool {
@@ -172,6 +177,8 @@ async fn main() -> Result<()> {
     .await;
 
     let mut last_print = Instant::now();
+    let mut consecutive_failures = 0u32;
+    const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
     // 上传播放进度
     while is_process_running(&mut child) {
@@ -181,24 +188,48 @@ async fn main() -> Result<()> {
             #[cfg(unix)]
             let time_pos = property::get_time_pos_unix();
 
-            if let Ok(duration) = time_pos {
-                ticks = duration.parse::<f64>().context("Failed to parse ticks")? as u64
-                    * 10_000_000_u64;
-                // 更新进度
-                let _ = request::playing_status(
-                    ticks,
-                    &host,
-                    &item_id,
-                    &api_key,
-                    &media_source_id,
-                    request::PlayStatus::Progress,
-                    headers.clone(),
-                )
-                .await;
+            match time_pos {
+                Ok(duration) => {
+                    match duration.parse::<f64>() {
+                        Ok(pos) => {
+                            ticks = pos as u64 * 10_000_000_u64;
+                            // 更新进度
+                            let _ = request::playing_status(
+                                ticks,
+                                &host,
+                                &item_id,
+                                &api_key,
+                                &media_source_id,
+                                request::PlayStatus::Progress,
+                                headers.clone(),
+                            )
+                            .await;
 
-                last_print = Instant::now();
-            } else {
-                println!("更新播放时间失败")
+                            // Reset failure counter on success
+                            consecutive_failures = 0;
+                            last_print = Instant::now();
+                        }
+                        Err(e) => {
+                            consecutive_failures += 1;
+                            if consecutive_failures <= MAX_CONSECUTIVE_FAILURES {
+                                println!(
+                                    "解析播放时间失败: {} (尝试 {}/{})",
+                                    e, consecutive_failures, MAX_CONSECUTIVE_FAILURES
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    consecutive_failures += 1;
+                    // Only print error message for first few failures to avoid spam
+                    if consecutive_failures <= MAX_CONSECUTIVE_FAILURES {
+                        println!(
+                            "获取播放时间失败 (尝试 {}/{})",
+                            consecutive_failures, MAX_CONSECUTIVE_FAILURES
+                        );
+                    }
+                }
             }
         }
     }
