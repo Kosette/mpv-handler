@@ -476,12 +476,12 @@ pub mod property {
         let message_str = message.to_string() + "\n";
         
         // Write with timeout handling
-        file.write_all(message_str.as_bytes()).map_err(|_| {
-            Error::from_win32()
+        file.write_all(message_str.as_bytes()).map_err(|e| {
+            Error::from(e)
         })?;
 
         // Flush to ensure data is sent
-        file.flush().map_err(|_| Error::from_win32())?;
+        file.flush().map_err(|e| Error::from(e))?;
 
         // Read response with size limit
         let mut response = String::new();
@@ -493,14 +493,20 @@ pub mod property {
                 Ok(0) => {
                     // Connection closed
                     if response.is_empty() {
-                        return Err(Error::from_win32());
+                        return Err(Error::from(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "Connection closed without data"
+                        )));
                     }
                     break;
                 }
                 Ok(n) => {
                     total_read += n;
                     if total_read > MAX_RESPONSE_SIZE {
-                        return Err(Error::from_win32());
+                        return Err(Error::from(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Response size exceeded limit"
+                        )));
                     }
 
                     response.push_str(&String::from_utf8_lossy(&buffer[..n]));
@@ -510,26 +516,35 @@ pub mod property {
                         break;
                     }
                 }
-                Err(_) => {
-                    return Err(Error::from_win32());
+                Err(e) => {
+                    return Err(Error::from(e));
                 }
             }
         }
 
         // Parse and validate JSON response
         let time_pos: serde_json::Value = serde_json::from_str(response.trim())
-            .map_err(|_| Error::from_win32())?;
+            .map_err(|e| Error::from(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to parse JSON response: {}", e)
+            )))?;
 
         // Validate response structure and extract data
         if let Some(data) = time_pos.get("data") {
             if let Some(error) = time_pos.get("error") {
                 if error != "success" && !error.is_null() {
-                    return Err(Error::from_win32());
+                    return Err(Error::from(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("MPV returned error: {}", error)
+                    )));
                 }
             }
             Ok(data.to_string())
         } else {
-            Err(Error::from_win32())
+            Err(Error::from(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "No 'data' field in MPV response"
+            )))
         }
     }
 
